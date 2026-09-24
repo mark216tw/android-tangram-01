@@ -79,6 +79,7 @@ class GameViewModel(val level: Level) : ViewModel() {
         val selected = _state.value.selected ?: return
         if (selected != PieceKind.PARALLELOGRAM) return
         changePiece(selected) { it.copy(pose = it.pose.copy(flipped = !it.pose.flipped)) }
+        // Re-evaluate immediately so a flipped piece can lock without another drag.
         trySnap()
     }
 
@@ -120,7 +121,9 @@ class GameViewModel(val level: Level) : ViewModel() {
                 )
                 Triple(kind, target, distance)
             }
-            .filter { it.third <= .065 }
+            // Keep the tolerance tight enough that a nearby square cannot
+            // steal a triangular target (or vice versa).
+            .filter { it.third <= if (selected == PieceKind.SQUARE) .052 else .065 }
             .minByOrNull { it.third }
 
         if (match != null) {

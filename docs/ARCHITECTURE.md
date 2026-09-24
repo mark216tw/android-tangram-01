@@ -46,12 +46,14 @@
 ### `com.example.minitangram.game`
 
 - `TangramModels.kt`：向量、拼片類型、標準幾何、座標轉換及方向判定。
-- `Levels.kt`：12 個關卡的目標中心、旋轉角度與翻面資料。
+- `Levels.kt`：20 個內建關卡的目標中心、旋轉角度與翻面資料。
+- `EditorSnapping.kt`：自訂關卡編輯器的邊對邊幾何吸附。
+- `CustomLevelOrder.kt`：自訂關卡原位置更新規則。
 - `GameViewModel.kt`：遊戲狀態、計時、選取、拖曳、旋轉、翻面、提示及吸附。
 
 ### `com.example.minitangram.data`
 
-- `PreferencesRepository.kt`：顯示模式、音效、解鎖關卡及最佳時間的 DataStore 存取。
+- `PreferencesRepository.kt`：偏好、進度、自訂關卡及匯入匯出的 DataStore 存取。
 
 ### `com.example.minitangram.ui.theme`
 
@@ -132,12 +134,15 @@
 
 ## 持久化
 
-DataStore 檔名為 `mini_tangram_preferences`，使用以下鍵值：
+DataStore 檔名為 `mini_tangram_preferences_v2`，使用以下鍵值：
 
 - `display_mode`：`SYSTEM`、`LIGHT` 或 `DARK`
 - `sound_enabled`：布林值，預設 `true`
 - `unlocked_level`：最高已解鎖關卡，預設 `1`
 - `best_time_<level>`：各關最佳秒數
+- `difficulty`：`BEGINNER` 或 `ADVANCED`
+- `piece_color_theme`：目前拼板配色
+- `custom_levels`：版本化 JSON 格式的自訂關卡清單
 
 應用程式不使用網路權限，也不將資料傳送到裝置外。
 
@@ -147,6 +152,7 @@ DataStore 檔名為 `mini_tangram_preferences`，使用以下鍵值：
 | --- | --- |
 | `home` | 首頁 |
 | `levels` | 關卡選擇 |
+| `editor/{levelId}` | 建立或編輯自訂關卡 |
 | `instructions` | 遊戲說明 |
 | `settings` | 設定 |
 | `game/{levelId}` | 指定關卡遊戲畫面 |
@@ -157,7 +163,7 @@ DataStore 檔名為 `mini_tangram_preferences`，使用以下鍵值：
 
 - 角度跨越 0/360 度的距離
 - 多邊形內外點判定
-- 12 關資料完整性
+- 20 關資料完整性
 - 翻面及旋轉後頂點
 - 標準七巧板面積比例
 - 直角等腰與幾何中心

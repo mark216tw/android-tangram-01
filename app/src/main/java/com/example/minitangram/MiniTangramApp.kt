@@ -2,14 +2,21 @@ package com.example.minitangram
 
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import com.example.minitangram.game.forCanvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +42,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.RotateLeft
 import androidx.compose.material.icons.automirrored.rounded.RotateRight
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Flip
 import androidx.compose.material.icons.rounded.Lightbulb
@@ -43,6 +51,10 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -57,6 +69,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -65,13 +78,16 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
@@ -95,17 +111,26 @@ import androidx.navigation.navArgument
 import com.example.minitangram.data.PreferencesRepository
 import com.example.minitangram.data.UserProgress
 import com.example.minitangram.game.GameViewModel
+import com.example.minitangram.game.Difficulty
 import com.example.minitangram.game.Level
 import com.example.minitangram.game.PieceKind
+import com.example.minitangram.game.PieceColorTheme
 import com.example.minitangram.game.PlayingPiece
 import com.example.minitangram.game.Pose
 import com.example.minitangram.game.Vec2
 import com.example.minitangram.game.levels
 import com.example.minitangram.game.pieceSpecs
+import com.example.minitangram.game.containsPoint
+import com.example.minitangram.game.colorFor
 import com.example.minitangram.game.transformedVertices
 import com.example.minitangram.ui.theme.DisplayMode
 import com.example.minitangram.ui.theme.MiniTangramTheme
 import kotlinx.coroutines.launch
+import com.example.minitangram.game.snapEditorPose
+import com.example.minitangram.game.tidyEditorPoses
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntSize
 
 @Composable
 fun MiniTangramApp(onExit: () -> Unit) {
@@ -114,6 +139,7 @@ fun MiniTangramApp(onExit: () -> Unit) {
     val progress by repository.progress.collectAsStateWithLifecycle(UserProgress())
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
+    val allLevels = levels + progress.customLevels
 
     MiniTangramTheme(progress.displayMode) {
         NavHost(navController, startDestination = "home") {
@@ -127,7 +153,11 @@ fun MiniTangramApp(onExit: () -> Unit) {
                 )
             }
             composable("levels") {
-                LevelSelectScreen(navController, progress)
+                LevelSelectScreen(navController, progress, repository, scope)
+            }
+            composable("editor/{levelId}", arguments = listOf(navArgument("levelId") { type = NavType.IntType })) { entry ->
+                val id = entry.arguments?.getInt("levelId") ?: 0
+                LevelEditorScreen(navController, repository, progress.customLevels.firstOrNull { it.id == id }, scope, progress.pieceColorTheme)
             }
             composable("instructions") {
                 InstructionsScreen(navController)
@@ -138,7 +168,11 @@ fun MiniTangramApp(onExit: () -> Unit) {
                     currentMode = progress.displayMode,
                     soundEnabled = progress.soundEnabled,
                     onModeChange = { mode -> scope.launch { repository.setDisplayMode(mode) } },
-                    onSoundEnabledChange = { enabled -> scope.launch { repository.setSoundEnabled(enabled) } }
+                    onSoundEnabledChange = { enabled -> scope.launch { repository.setSoundEnabled(enabled) } },
+                    difficulty = progress.difficulty,
+                    onDifficultyChange = { difficulty -> scope.launch { repository.setDifficulty(difficulty) } },
+                    colorTheme = progress.pieceColorTheme,
+                    onColorThemeChange = { theme -> scope.launch { repository.setPieceColorTheme(theme) } }
                 )
             }
             composable(
@@ -146,13 +180,16 @@ fun MiniTangramApp(onExit: () -> Unit) {
                 arguments = listOf(navArgument("levelId") { type = NavType.IntType })
             ) { entry ->
                 val levelId = entry.arguments?.getInt("levelId") ?: 1
-                val level = levels.first { it.id == levelId }
+                val level = allLevels.first { it.id == levelId }
                 GameScreen(
                     navController = navController,
                     level = level,
                     bestTime = progress.bestTimes[levelId],
                     soundEnabled = progress.soundEnabled,
-                    onComplete = { seconds -> repository.completeLevel(levelId, seconds) }
+                    onComplete = { seconds -> repository.completeLevel(levelId, seconds) },
+                    difficulty = progress.difficulty,
+                    isCustom = level.id < 0,
+                    colorTheme = progress.pieceColorTheme
                 )
             }
         }
@@ -177,7 +214,7 @@ private fun HomeScreen(
             Text("mini", color = MaterialTheme.colorScheme.primary, fontSize = 18.sp, letterSpacing = 6.sp)
             Text("七巧板", color = MaterialTheme.colorScheme.onBackground, fontSize = 42.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 8.sp)
             Text("七片巧思 · 萬般形意", color = MaterialTheme.colorScheme.outline, fontSize = 14.sp)
-            Spacer(Modifier.weight(.32f))
+            Spacer(Modifier.weight(.20f))
             HomePrimaryCard(onStart)
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -197,7 +234,7 @@ private fun HomeScreen(
                 )
             }
             TextButton(onClick = onExit, modifier = Modifier.padding(top = 4.dp).height(46.dp)) { Text("結束遊戲") }
-            Spacer(Modifier.weight(.5f))
+            Spacer(Modifier.weight(.62f))
         }
     }
 }
@@ -221,9 +258,8 @@ private fun HomePrimaryCard(onClick: () -> Unit) {
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text("開始遊戲", color = MaterialTheme.colorScheme.onPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                Text("挑戰十二種動物剪影", color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .78f), fontSize = 12.sp)
+                Text("自訂關卡一起挑戰", color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .78f), fontSize = 12.sp)
             }
-            Text("壹", color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .45f), fontSize = 24.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -260,11 +296,14 @@ private fun HomeSmallCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PageScaffold(title: String, navController: NavController, content: @Composable (PaddingValues) -> Unit) {
+private fun PageScaffold(title: String, navController: NavController, status: String? = null, content: @Composable (PaddingValues) -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(title, fontWeight = FontWeight.SemiBold) },
+                actions = {
+                    status?.let { Text(it, modifier = Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.primary) }
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回")
@@ -278,22 +317,51 @@ private fun PageScaffold(title: String, navController: NavController, content: @
 }
 
 @Composable
-private fun LevelSelectScreen(navController: NavController, progress: UserProgress) {
-    PageScaffold("選擇關卡", navController) { padding ->
+private fun LevelSelectScreen(
+    navController: NavController,
+    progress: UserProgress,
+    repository: PreferencesRepository,
+    scope: kotlinx.coroutines.CoroutineScope
+) {
+    val context = LocalContext.current
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
+        if (uri != null) scope.launch {
+            context.contentResolver.openOutputStream(uri)?.use { output ->
+                output.write(repository.exportCustomLevels(progress.customLevels).toByteArray())
+            }
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) scope.launch {
+            val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            if (json != null) repository.importCustomLevels(json)
+        }
+    }
+    PageScaffold("遊戲關卡", navController, if (progress.difficulty == Difficulty.BEGINNER) "初級" else "高級") { padding ->
+        val allLevels = levels + progress.customLevels
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilledTonalButton(onClick = { navController.navigate("editor/0") }) { Icon(Icons.Rounded.Add, null); Text("建立") }
+            FilledTonalButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/plain")) }) { Icon(Icons.Rounded.FileUpload, null); Text("匯入") }
+            FilledTonalButton(onClick = { exportLauncher.launch("mini-tangram-levels.json") }) { Icon(Icons.Rounded.FileDownload, null); Text("匯出") }
+        }
         LazyVerticalGrid(
             columns = GridCells.Adaptive(145.dp),
             contentPadding = PaddingValues(
                 start = 18.dp,
                 end = 18.dp,
-                top = padding.calculateTopPadding() + 12.dp,
-                bottom = padding.calculateBottomPadding() + 24.dp
+                top = 4.dp,
+                bottom = 24.dp
             ),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
         ) {
-            items(levels) { level ->
-                val unlocked = level.id <= progress.unlockedLevel
+            items(allLevels) { level ->
+                val unlocked = level.id < 0 || level.id <= progress.unlockedLevel
                 val best = progress.bestTimes[level.id]
                 Card(
                     modifier = Modifier.height(132.dp).clickable(enabled = unlocked) { navController.navigate("game/${level.id}") },
@@ -302,20 +370,24 @@ private fun LevelSelectScreen(navController: NavController, progress: UserProgre
                         containerColor = if (unlocked) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
                     )
                 ) {
-                    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                    Box(Modifier.fillMaxSize()) {
+                    Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = if (level.id < 0) 52.dp else 16.dp), verticalArrangement = Arrangement.SpaceBetween) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(level.id.toString().padStart(2, '0'), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                            Icon(
-                                if (unlocked) Icons.Rounded.Check else Icons.Rounded.Lock,
-                                if (unlocked) "已解鎖" else "未解鎖",
-                                tint = if (best != null) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline
-                            )
+                            if (level.id >= 0) Icon(if (unlocked) Icons.Rounded.Check else Icons.Rounded.Lock, if (unlocked) "已解鎖" else "未解鎖", tint = if (best != null) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline)
                         }
-                        Text(level.name, fontSize = 23.sp, fontWeight = FontWeight.Medium)
-                        Text(best?.let { "最佳 ${formatTime(it)}" } ?: if (unlocked) "尚未完成" else "完成前一關解鎖", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                        Text(level.name, fontSize = 23.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        Text(best?.let { "已完成 · 最佳 ${formatTime(it)}" } ?: if (unlocked) "尚未完成" else "完成前一關解鎖", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                    }
+                    if (level.id < 0) {
+                        Column(Modifier.align(Alignment.CenterEnd).padding(end = 4.dp)) {
+                            IconButton(onClick = { navController.navigate("editor/${level.id}") }) { Icon(Icons.Rounded.Edit, "編輯") }
+                        }
+                    }
                     }
                 }
             }
+        }
         }
     }
 }
@@ -352,33 +424,58 @@ private fun SettingsScreen(
     currentMode: DisplayMode,
     soundEnabled: Boolean,
     onModeChange: (DisplayMode) -> Unit,
-    onSoundEnabledChange: (Boolean) -> Unit
+    onSoundEnabledChange: (Boolean) -> Unit,
+    difficulty: Difficulty,
+    onDifficultyChange: (Difficulty) -> Unit,
+    colorTheme: PieceColorTheme,
+    onColorThemeChange: (PieceColorTheme) -> Unit
 ) {
     PageScaffold("設定", navController) { padding ->
-        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).padding(24.dp)) {
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) {
             Text("顯示模式", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-            Text("選擇適合環境的畫面明暗", color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             DisplayMode.entries.forEach { mode ->
                 val label = when (mode) { DisplayMode.SYSTEM -> "系統"; DisplayMode.LIGHT -> "淺色"; DisplayMode.DARK -> "深色" }
-                Row(
-                    Modifier.fillMaxWidth().clickable { onModeChange(mode) }.padding(vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(selected = currentMode == mode, onClick = { onModeChange(mode) })
-                    Spacer(Modifier.width(10.dp))
-                    Text(label, fontSize = 17.sp)
+                SettingChoice(label, currentMode == mode, { onModeChange(mode) }, Modifier.weight(1f))
+            }
+            }
+            HorizontalDivider(Modifier.padding(vertical = 10.dp))
+            Text("遊戲難度", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Difficulty.entries.forEach { mode ->
+                val label = if (mode == Difficulty.BEGINNER) "初級" else "高級"
+                SettingChoice(label, difficulty == mode, { onDifficultyChange(mode) }, Modifier.weight(1f))
+            }
+            }
+            Text(if (difficulty == Difficulty.BEGINNER) "顯示每塊拼板的完整外框" else "只顯示圖案的外圍輪廓", fontSize = 13.sp, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(top = 4.dp))
+            HorizontalDivider(Modifier.padding(vertical = 10.dp))
+            Text("拼板顏色", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            PieceColorTheme.entries.chunked(2).forEach { themes ->
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            themes.forEach { theme ->
+                val label = when (theme) {
+                    PieceColorTheme.CLASSIC -> "經典"
+                    PieceColorTheme.BRIGHT -> "高彩"
+                    PieceColorTheme.PASTEL -> "柔和"
+                    PieceColorTheme.MONOCHROME -> "單色"
+                }
+                SettingChoice(label, colorTheme == theme, { onColorThemeChange(theme) }, Modifier.weight(1f)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        PieceKind.entries.forEach { kind ->
+                            Box(Modifier.weight(1f).height(10.dp).background(Color(kind.colorFor(theme)), RoundedCornerShape(2.dp)))
+                        }
+                    }
                 }
             }
-            HorizontalDivider(Modifier.padding(vertical = 20.dp))
+            }
+            }
+            HorizontalDivider(Modifier.padding(vertical = 10.dp))
             Row(
-                Modifier.fillMaxWidth().clickable { onSoundEnabledChange(!soundEnabled) }.padding(vertical = 8.dp),
+                Modifier.fillMaxWidth().clickable { onSoundEnabledChange(!soundEnabled) }.padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text("音效", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                    Text("拼片正確吸附時播放提示音", color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(top = 4.dp))
-                }
+                Text("音效", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 Switch(checked = soundEnabled, onCheckedChange = onSoundEnabledChange)
             }
         }
@@ -392,15 +489,20 @@ private fun GameScreen(
     level: Level,
     bestTime: Long?,
     soundEnabled: Boolean,
-    onComplete: suspend (Long) -> Unit
+    onComplete: suspend (Long) -> Unit,
+    difficulty: Difficulty,
+    isCustom: Boolean,
+    colorTheme: PieceColorTheme
 ) {
-    val factory = remember(level.id) {
+    var boardSize by remember { mutableStateOf(IntSize.Zero) }
+    val displayLevel = if (boardSize.height > 0) level.forCanvas(boardSize.width.toFloat() / boardSize.height) else level
+    val factory = remember(displayLevel) {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T = GameViewModel(level) as T
+            override fun <T : ViewModel> create(modelClass: Class<T>): T = GameViewModel(displayLevel) as T
         }
     }
-    val game: GameViewModel = viewModel(key = "game-${level.id}", factory = factory)
+    val game: GameViewModel = viewModel(key = "game-${level.id}-${displayLevel.canvasYScale}", factory = factory)
     val state by game.state.collectAsStateWithLifecycle()
     val toneGenerator = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 70) }
     DisposableEffect(toneGenerator) {
@@ -432,13 +534,15 @@ private fun GameScreen(
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)) {
             Text("依照淡墨剪影拼合七片", color = MaterialTheme.colorScheme.outline, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp))
             TangramBoard(
-                level,
+                displayLevel,
                 state.pieces,
                 state.selected,
                 state.hint,
                 state.hintTarget,
                 game,
-                Modifier.fillMaxWidth().weight(1f).padding(12.dp)
+                difficulty,
+                colorTheme,
+                Modifier.fillMaxWidth().weight(1f).padding(12.dp).onSizeChanged { boardSize = it }
             )
         }
     }
@@ -450,9 +554,9 @@ private fun GameScreen(
             text = { Column { Text("完成時間 ${formatTime(state.elapsedSeconds)}"); Text(if (bestTime == null || state.elapsedSeconds < bestTime) "新的最佳紀錄" else "最佳紀錄 ${formatTime(bestTime)}", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp)); if (state.hintsUsed > 0) Text("使用提示 ${state.hintsUsed} 次", fontSize = 13.sp, color = MaterialTheme.colorScheme.outline) } },
             confirmButton = {
                 Button(onClick = {
-                    if (level.id < levels.size) navController.navigate("game/${level.id + 1}") { popUpTo("game/${level.id}") { inclusive = true } }
-                    else navController.navigate("levels") { popUpTo("levels") { inclusive = false } }
-                }) { Text(if (level.id < levels.size) "下一關" else "返回關卡") }
+                    if (!isCustom && level.id < levels.size) navController.navigate("game/${level.id + 1}") { popUpTo("game/${level.id}") { inclusive = true } }
+                    else navController.popBackStack("levels", inclusive = false)
+                }) { Text(if (!isCustom && level.id < levels.size) "下一關" else "返回關卡") }
             },
             dismissButton = { TextButton(onClick = { navController.popBackStack() }) { Text("關卡選擇") } }
         )
@@ -468,9 +572,9 @@ private fun GameControls(selected: PieceKind?, game: GameViewModel) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(onClick = { game.rotate(-45) }, enabled = selected != null, modifier = Modifier.size(52.dp)) { Icon(Icons.AutoMirrored.Rounded.RotateLeft, "向左旋轉") }
-        Text(if (selected == null) "先選一塊拼片" else "已選取", color = MaterialTheme.colorScheme.outline, fontSize = 13.sp)
-        IconButton(onClick = game::flip, enabled = selected == PieceKind.PARALLELOGRAM, modifier = Modifier.size(52.dp)) { Icon(Icons.Rounded.Flip, "翻面") }
         IconButton(onClick = { game.rotate(45) }, enabled = selected != null, modifier = Modifier.size(52.dp)) { Icon(Icons.AutoMirrored.Rounded.RotateRight, "向右旋轉") }
+        Text(if (selected == null) "先選一塊拼片" else "已選取", color = MaterialTheme.colorScheme.outline, fontSize = 13.sp)
+        IconButton(onClick = game::flip, enabled = selected == PieceKind.PARALLELOGRAM, modifier = Modifier.size(52.dp)) { Icon(Icons.Rounded.Flip, "換邊") }
     }
 }
 
@@ -482,6 +586,8 @@ private fun TangramBoard(
     hint: PieceKind?,
     hintTarget: PieceKind?,
     game: GameViewModel,
+    difficulty: Difficulty,
+    colorTheme: PieceColorTheme,
     modifier: Modifier = Modifier
 ) {
     val outline = MaterialTheme.colorScheme.outline
@@ -522,24 +628,32 @@ private fun TangramBoard(
             Offset(size.width, size.height * .68f),
             1.dp.toPx()
         )
-        level.targets.forEach { (kind, pose) ->
+        val targetPieces = level.targets.map { (kind, pose) ->
             val spec = pieceSpecs.first { it.kind == kind }
-            val targetPiece = PlayingPiece(spec, pose)
-            val isHint = hintTarget == kind
-            drawPiece(
-                targetPiece,
-                if (isHint) accent.copy(alpha = .25f) else onSurface.copy(alpha = if (dark) .18f else .08f),
-                if (isHint) accent else onSurface.copy(alpha = if (dark) .78f else .48f),
-                2.dp.toPx()
-            )
+            PlayingPiece(spec, pose)
+        }
+        if (difficulty == Difficulty.BEGINNER) {
+            targetPieces.forEach { targetPiece ->
+                val isHint = hintTarget == targetPiece.spec.kind
+                drawPiece(
+                    targetPiece,
+                    if (isHint) accent.copy(alpha = .25f) else onSurface.copy(alpha = if (dark) .18f else .08f),
+                    if (isHint) accent else onSurface.copy(alpha = if (dark) .78f else .48f),
+                    2.dp.toPx()
+                )
+            }
+        } else {
+            val targetPath = targetUnionPath(targetPieces, size.width / size.height, size.width, size.height)
+            drawPath(targetPath, onSurface.copy(alpha = if (dark) .14f else .07f))
+            drawPath(targetPath, onSurface.copy(alpha = if (dark) .78f else .48f), style = Stroke(2.dp.toPx()))
         }
         pieces.forEach { piece ->
             val isSelected = selected == piece.spec.kind
             val isHint = hint == piece.spec.kind
             drawPiece(
                 piece,
-                Color(piece.spec.color).copy(alpha = if (piece.snapped) .82f else 1f),
-                when { isHint -> accent; isSelected -> Color.White; else -> Color.Black.copy(alpha = .35f) },
+                Color(piece.spec.kind.colorFor(colorTheme)).copy(alpha = if (piece.snapped) .82f else 1f),
+                when { isHint -> accent; isSelected -> if (dark) Color.White else Color(0xFF3F342C); else -> Color.Black.copy(alpha = .35f) },
                 if (isSelected || isHint) 3.dp.toPx() else 1.dp.toPx()
             )
         }
@@ -555,6 +669,162 @@ private fun DrawScope.drawPiece(piece: PlayingPiece, fill: Color, stroke: Color,
     }
     drawPath(path, fill)
     drawPath(path, stroke, style = Stroke(strokeWidth))
+}
+
+@Composable
+private fun SettingChoice(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    preview: (@Composable () -> Unit)? = null
+) {
+    Column(
+        modifier
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+            .border(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = .4f), RoundedCornerShape(8.dp))
+            .then(Modifier.selectable(selected = selected, role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onClick))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(label, modifier = Modifier.padding(vertical = 6.dp), color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+        preview?.invoke()
+    }
+}
+
+private fun targetUnionPath(pieces: List<PlayingPiece>, normalizedYScale: Float, width: Float, height: Float): Path {
+    val paths = pieces.map { piece ->
+        val vertices = transformedVertices(piece, normalizedYScale)
+        Path().apply {
+            moveTo(vertices.first().x * width, vertices.first().y * height)
+            vertices.drop(1).forEach { lineTo(it.x * width, it.y * height) }
+            close()
+        }
+    }
+    return paths.drop(1).fold(paths.first()) { result, path -> Path.combine(PathOperation.Union, result, path) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LevelEditorScreen(
+    navController: NavController,
+    repository: PreferencesRepository,
+    existing: Level?,
+    scope: kotlinx.coroutines.CoroutineScope,
+    colorTheme: PieceColorTheme
+) {
+    val editorDark = MaterialTheme.colorScheme.surface.luminance() < .5f
+    val initial = existing?.targets ?: PieceKind.entries.mapIndexed { index, kind ->
+        kind to Pose(Vec2(.16f + index * .11f, if (index < 3) .72f else .88f))
+    }.toMap()
+    var poses by remember(existing?.id) { mutableStateOf(initial) }
+    var selected by remember { mutableStateOf<PieceKind?>(null) }
+    var moveWhole by remember { mutableStateOf(false) }
+    var name by remember(existing?.id) { mutableStateOf(existing?.name ?: "") }
+    var showNameDialog by remember { mutableStateOf(false) }
+    var editorSize by remember { mutableStateOf(IntSize.Zero) }
+    val snapPixels = with(LocalDensity.current) { 12.dp.toPx() }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(if (existing == null) "建立關卡" else "編輯關卡") },
+                navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Rounded.Close, "取消") } },
+                actions = {
+                    if (existing != null) {
+                        IconButton(onClick = {
+                            scope.launch {
+                                repository.deleteCustomLevel(existing.id)
+                                navController.popBackStack("levels", inclusive = false)
+                            }
+                        }) { Icon(Icons.Rounded.Delete, "刪除關卡") }
+                    }
+                    TextButton(onClick = { showNameDialog = true }) { Text("儲存") }
+                }
+            )
+        },
+        bottomBar = {
+            Row(Modifier.fillMaxWidth().navigationBarsPadding().background(MaterialTheme.colorScheme.surface).padding(8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                IconButton(enabled = selected != null && !moveWhole, onClick = { selected?.let { kind -> poses = poses + (kind to poses.getValue(kind).copy(rotation = (poses.getValue(kind).rotation + 315) % 360)) } }) { Icon(Icons.AutoMirrored.Rounded.RotateLeft, "向左旋轉") }
+                IconButton(enabled = selected != null && !moveWhole, onClick = { selected?.let { kind -> poses = poses + (kind to poses.getValue(kind).copy(rotation = (poses.getValue(kind).rotation + 45) % 360)) } }) { Icon(Icons.AutoMirrored.Rounded.RotateRight, "向右旋轉") }
+                Text(if (moveWhole) "整體移動中" else if (selected == null) "兩指移動整個圖案" else "已選取", modifier = Modifier.align(Alignment.CenterVertically), color = MaterialTheme.colorScheme.outline, fontSize = 12.sp)
+                IconButton(enabled = selected == PieceKind.PARALLELOGRAM && !moveWhole, onClick = { selected?.let { kind -> poses = poses + (kind to poses.getValue(kind).copy(flipped = !poses.getValue(kind).flipped)) } }) { Icon(Icons.Rounded.Flip, "換邊") }
+            }
+        }
+    ) { padding ->
+        Canvas(
+            Modifier.fillMaxSize().padding(padding).padding(12.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                .onSizeChanged {
+                    if (it.width > 0 && it.height > 0) {
+                        val oldScale = if (editorSize.height > 0) editorSize.width.toFloat() / editorSize.height else existing?.canvasYScale
+                        poses = Level(0, "", poses, oldScale).forCanvas(it.width.toFloat() / it.height).targets
+                    }
+                    editorSize = it
+                }
+                .pointerInput(snapPixels) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        val start = poses
+                        val scale = size.width.toFloat() / size.height
+                        selected = poses.entries.toList().asReversed().firstOrNull { (kind, pose) ->
+                            containsPoint(transformedVertices(PlayingPiece(pieceSpecs.first { it.kind == kind }, pose), scale), Vec2(down.position.x / size.width, down.position.y / size.height))
+                        }?.key
+                        var whole = false
+                        var dragged = false
+                        try {
+                            do {
+                                val event = awaitPointerEvent()
+                                val active = event.changes.filter { it.pressed }
+                                if (active.size >= 2 && !whole) {
+                                    poses = start
+                                    whole = true
+                                    moveWhole = true
+                                } else if (active.size >= 2 || (!whole && active.size == 1)) {
+                                    val stable = active.filter { it.previousPressed }
+                                    if (stable.isNotEmpty()) {
+                                        val dx = stable.sumOf { (it.position.x - it.previousPosition.x).toDouble() }.toFloat() / stable.size / size.width
+                                        val dy = stable.sumOf { (it.position.y - it.previousPosition.y).toDouble() }.toFloat() / stable.size / size.height
+                                        if (whole) {
+                                            val vertices = poses.flatMap { (kind, pose) -> transformedVertices(PlayingPiece(pieceSpecs.first { it.kind == kind }, pose), scale) }
+                                            fun bounded(delta: Float, low: Float, high: Float) = if (low <= high) delta.coerceIn(low, high) else 0f
+                                            val shift = Vec2(bounded(dx, -vertices.minOf { it.x }, 1f - vertices.maxOf { it.x }), bounded(dy, -vertices.minOf { it.y }, 1f - vertices.maxOf { it.y }))
+                                            poses = poses.mapValues { (_, pose) -> pose.copy(center = pose.center + shift) }
+                                        } else selected?.let { kind ->
+                                            if (dx != 0f || dy != 0f) dragged = true
+                                            val pose = poses.getValue(kind)
+                                            poses = poses + (kind to pose.copy(center = Vec2((pose.center.x + dx).coerceIn(.05f, .95f), (pose.center.y + dy).coerceIn(.06f, .94f))))
+                                        }
+                                    }
+                                }
+                                event.changes.forEach { it.consume() }
+                            } while (event.changes.any { it.pressed })
+                            if (!whole && dragged) selected?.let { kind ->
+                                poses = poses + (kind to snapEditorPose(kind, poses.getValue(kind), poses.filterKeys { it != kind }, scale, snapPixels / size.width))
+                            }
+                        } finally { moveWhole = false }
+                    }
+                }
+        ) {
+            poses.forEach { (kind, pose) ->
+                drawPiece(PlayingPiece(pieceSpecs.first { it.kind == kind }, pose), Color(kind.colorFor(colorTheme)), if (selected == kind) { if (editorDark) Color.White else Color(0xFF3F342C) } else Color.Black.copy(alpha = .35f), if (selected == kind) 3.dp.toPx() else 1.dp.toPx())
+            }
+        }
+    }
+    if (showNameDialog) {
+        AlertDialog(
+            onDismissRequest = { showNameDialog = false },
+            title = { Text("儲存關卡") },
+            text = { TextField(value = name, onValueChange = { name = it }, label = { Text("關卡名稱") }, singleLine = true) },
+            confirmButton = {
+                Button(enabled = name.isNotBlank() && editorSize.width > 0 && editorSize.height > 0, onClick = {
+                    scope.launch {
+                        repository.saveCustomLevel(Level(existing?.id ?: 0, name.trim(), poses, editorSize.width.toFloat() / editorSize.height))
+                        navController.popBackStack()
+                    }
+                }) { Text("儲存") }
+            },
+            dismissButton = { TextButton(onClick = { showNameDialog = false }) { Text("取消") } }
+        )
+    }
 }
 
 @Composable

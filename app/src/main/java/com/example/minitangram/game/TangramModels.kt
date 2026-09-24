@@ -14,7 +14,16 @@ enum class PieceKind { LARGE_ONE, LARGE_TWO, MEDIUM, SMALL_ONE, SMALL_TWO, SQUAR
 
 data class PieceSpec(val kind: PieceKind, val vertices: List<Vec2>, val color: Long)
 data class Pose(val center: Vec2, val rotation: Int = 0, val flipped: Boolean = false)
-data class Level(val id: Int, val name: String, val targets: Map<PieceKind, Pose>)
+data class Level(val id: Int, val name: String, val targets: Map<PieceKind, Pose>, val canvasYScale: Float? = null)
+
+fun Level.forCanvas(yScale: Float): Level {
+    val source = canvasYScale ?: return this
+    return copy(targets = targets.mapValues { (_, pose) ->
+        pose.copy(center = Vec2(pose.center.x, .4f + (pose.center.y - .4f) * yScale / source))
+    }, canvasYScale = yScale)
+}
+enum class Difficulty { BEGINNER, ADVANCED }
+enum class PieceColorTheme { CLASSIC, BRIGHT, PASTEL, MONOCHROME }
 data class PlayingPiece(
     val spec: PieceSpec,
     val pose: Pose,
@@ -22,7 +31,7 @@ data class PlayingPiece(
     val snappedTarget: PieceKind? = null
 )
 
-private const val SMALL_LEG = .14f
+private const val SMALL_LEG = .15f
 private val MEDIUM_LEG = SMALL_LEG * sqrt(2f)
 private const val LARGE_LEG = SMALL_LEG * 2f
 
@@ -59,6 +68,37 @@ val pieceSpecs = listOf(
     PieceSpec(PieceKind.SQUARE, square(SMALL_LEG), 0xFFC3A33B),
     PieceSpec(PieceKind.PARALLELOGRAM, parallelogram(SMALL_LEG), 0xFF6E4937)
 )
+
+fun PieceKind.colorFor(theme: PieceColorTheme): Long = when (theme) {
+    PieceColorTheme.CLASSIC -> pieceSpecs.first { it.kind == this }.color
+    PieceColorTheme.BRIGHT -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFFE53935
+        PieceKind.LARGE_TWO -> 0xFFFF8F00
+        PieceKind.MEDIUM -> 0xFF00A878
+        PieceKind.SMALL_ONE -> 0xFF1976D2
+        PieceKind.SMALL_TWO -> 0xFF7E57C2
+        PieceKind.SQUARE -> 0xFFFFD600
+        PieceKind.PARALLELOGRAM -> 0xFF6D4C41
+    }
+    PieceColorTheme.PASTEL -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFFE99A9A
+        PieceKind.LARGE_TWO -> 0xFFF2C28B
+        PieceKind.MEDIUM -> 0xFF9CCDBD
+        PieceKind.SMALL_ONE -> 0xFF9CB9D8
+        PieceKind.SMALL_TWO -> 0xFFC1ADD6
+        PieceKind.SQUARE -> 0xFFF1D98A
+        PieceKind.PARALLELOGRAM -> 0xFFB89D8F
+    }
+    PieceColorTheme.MONOCHROME -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFF263238
+        PieceKind.LARGE_TWO -> 0xFF37474F
+        PieceKind.MEDIUM -> 0xFF455A64
+        PieceKind.SMALL_ONE -> 0xFF546E7A
+        PieceKind.SMALL_TWO -> 0xFF607D8B
+        PieceKind.SQUARE -> 0xFF78909C
+        PieceKind.PARALLELOGRAM -> 0xFF90A4AE
+    }
+}
 
 fun transformedVertices(piece: PlayingPiece, normalizedYScale: Float = 1f): List<Vec2> {
     val radians = Math.toRadians(piece.pose.rotation.toDouble())

@@ -15,6 +15,11 @@ class TangramModelsTest {
     }
 
     @Test
+    fun beginnerDifficultyIsEnabledByDefault() {
+        assertEquals(Difficulty.BEGINNER, UserProgress().difficulty)
+    }
+
+    @Test
     fun angleDistance_wrapsAcrossZero() {
         assertEquals(0, angleDistance(0, 360))
         assertEquals(45, angleDistance(0, 315))
@@ -31,9 +36,9 @@ class TangramModelsTest {
 
     @Test
     fun everyLevelDefinesEachPieceExactlyOnce() {
-        assertEquals(12, levels.size)
+        assertEquals(20, levels.size)
         assertEquals(
-            listOf("小魚", "小雞", "兔子", "貓咪", "小狗", "烏龜", "天鵝", "狐狸", "駿馬", "大象", "老鷹", "飛龍"),
+            listOf("蛇", "獅子", "老鷹", "蝴蝶", "小雞", "鴨子", "駱駝", "蘋果", "長頸鹿", "恐龍", "狐狸", "蝙蝠", "愛心", "橋", "蠟燭", "鑰匙", "兔子", "袋鼠", "蝦子", "天鵝"),
             levels.map { it.name }
         )
         levels.forEach { level ->
