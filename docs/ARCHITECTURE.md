@@ -46,7 +46,7 @@
 ### `com.example.minitangram.game`
 
 - `TangramModels.kt`：向量、拼片類型、標準幾何、座標轉換及方向判定。
-- `Levels.kt`：20 個內建關卡的目標中心、旋轉角度與翻面資料。
+- `Levels.kt`：由 `mini-tangram-levels.json` 轉入的 20 個內建關卡，以及依清單順序進行解鎖與下一關的查詢函式。
 - `EditorSnapping.kt`：自訂關卡編輯器的邊對邊幾何吸附。
 - `CustomLevelOrder.kt`：自訂關卡原位置更新規則。
 - `GameViewModel.kt`：遊戲狀態、計時、選取、拖曳、旋轉、翻面、提示及吸附。
@@ -105,6 +105,8 @@
 - Y 軸使用 `width / height` 校正，確保長螢幕不會拉伸幾何形狀。
 - 點擊測試與 Canvas 繪製使用相同轉換，避免視覺與觸控範圍不一致。
 
+高級難度的整體剪影會先在固定的等比例座標中執行 `PathOperation.Union`，再由遊戲畫布與編輯器預覽分別縮放及平移。布林合併不受最終畫布像素尺寸影響，因此兩處會保留相同的外圍線條。
+
 ## 選取與拖曳
 
 1. Pointer Input 接收點擊或拖曳起點。
@@ -138,8 +140,9 @@ DataStore 檔名為 `mini_tangram_preferences_v2`，使用以下鍵值：
 
 - `display_mode`：`SYSTEM`、`LIGHT` 或 `DARK`
 - `sound_enabled`：布林值，預設 `true`
-- `unlocked_level`：最高已解鎖關卡，預設 `1`
-- `best_time_<level>`：各關最佳秒數
+- `built_in_unlocked_v2`：目前最高已解鎖的內建關卡 ID，預設為清單第一關
+- `built_in_v2_best_time_<level>`：新版內建關卡的最佳秒數
+- `best_time_<level>`：自訂關卡的最佳秒數
 - `difficulty`：`BEGINNER` 或 `ADVANCED`
 - `piece_color_theme`：目前拼板配色
 - `custom_levels`：版本化 JSON 格式的自訂關卡清單
@@ -164,6 +167,8 @@ DataStore 檔名為 `mini_tangram_preferences_v2`，使用以下鍵值：
 - 角度跨越 0/360 度的距離
 - 多邊形內外點判定
 - 20 關資料完整性
+- 內建關卡清單順序、解鎖及下一關查詢
+- 多種畫布比例下的內建關卡幾何轉換
 - 翻面及旋轉後頂點
 - 標準七巧板面積比例
 - 直角等腰與幾何中心

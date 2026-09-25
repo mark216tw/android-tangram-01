@@ -43,14 +43,24 @@ class TangramModelsTest {
     fun everyLevelDefinesEachPieceExactlyOnce() {
         assertEquals(20, levels.size)
         assertEquals(
-            listOf("蛇", "獅子", "老鷹", "蝴蝶", "小雞", "鴨子", "駱駝", "蘋果", "長頸鹿", "恐龍", "狐狸", "蝙蝠", "愛心", "橋", "蠟燭", "鑰匙", "兔子", "袋鼠", "蝦子", "天鵝"),
+            listOf("蛇", "老鷹", "蝴蝶", "恐龍", "狐狸", "蝙蝠", "天鵝", "蝦子", "北極熊", "趴著的貓", "馬", "狐狸", "鯊魚", "鴨子", "狗", "鯨魚", "螃蟹", "烏龜", "站立的貓", "牛"),
             levels.map { it.name }
         )
+        assertEquals((1..levels.size).toList(), levels.map { it.id })
         levels.forEach { level ->
             assertEquals(PieceKind.entries.toSet(), level.targets.keys)
+            assertEquals(.5913853f, level.canvasYScale)
             assertTrue(level.targets.values.all { it.rotation % 45 == 0 })
             assertTrue(level.targets.values.all { it.center.x in 0f..1f && it.center.y in 0f..1f })
         }
+    }
+
+    @Test
+    fun builtInLevelProgressionFollowsLevelOrder() {
+        assertTrue(isBuiltInLevelUnlocked(levels.first().id, levels.first().id))
+        assertFalse(isBuiltInLevelUnlocked(levels[1].id, levels.first().id))
+        assertEquals(levels[1], nextBuiltInLevel(levels.first().id))
+        assertEquals(null, nextBuiltInLevel(levels.last().id))
     }
 
     @Test
@@ -104,6 +114,30 @@ class TangramModelsTest {
 
         assertEquals(pixelSides[0], pixelSides[1], .001f)
         assertEquals(pixelSides[2], pixelSides[0] * sqrt(2f), .001f)
+    }
+
+    @Test
+    fun isotropicVertices_areIndependentOfCanvasRatio() {
+        val sourceScale = .5f
+        val sourcePiece = PlayingPiece(
+            pieceSpecs.first { it.kind == PieceKind.PARALLELOGRAM },
+            Pose(Vec2(.42f, .31f), rotation = 45, flipped = true)
+        )
+        val targetScale = .8f
+        val targetPose = Level(
+            id = 0,
+            name = "test",
+            targets = mapOf(sourcePiece.spec.kind to sourcePiece.pose),
+            canvasYScale = sourceScale
+        ).forCanvas(targetScale).targets.getValue(sourcePiece.spec.kind)
+        val source = isotropicVertices(sourcePiece, sourceScale)
+        val target = isotropicVertices(PlayingPiece(sourcePiece.spec, targetPose), targetScale)
+        val translationY = target.first().y - source.first().y
+
+        source.zip(target).forEach { (sourceVertex, targetVertex) ->
+            assertEquals(sourceVertex.x, targetVertex.x, .0001f)
+            assertEquals(sourceVertex.y + translationY, targetVertex.y, .0001f)
+        }
     }
 
     @Test

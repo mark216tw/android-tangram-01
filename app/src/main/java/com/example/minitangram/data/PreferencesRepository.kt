@@ -15,6 +15,8 @@ import com.example.minitangram.game.PieceKind
 import com.example.minitangram.game.Pose
 import com.example.minitangram.game.Vec2
 import com.example.minitangram.game.PieceColorTheme
+import com.example.minitangram.game.levels
+import com.example.minitangram.game.nextBuiltInLevel
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.flow.Flow
@@ -37,7 +39,7 @@ class PreferencesRepository(private val context: Context) {
     private val modeKey = stringPreferencesKey("display_mode")
     private val soundEnabledKey = booleanPreferencesKey("sound_enabled")
     private val hideBuiltInLevelsKey = booleanPreferencesKey("hide_built_in_levels")
-    private val unlockedKey = intPreferencesKey("unlocked_level")
+    private val unlockedKey = intPreferencesKey("built_in_unlocked_v2")
     private val difficultyKey = stringPreferencesKey("difficulty")
     private val customLevelsKey = stringPreferencesKey("custom_levels")
     private val pieceColorThemeKey = stringPreferencesKey("piece_color_theme")
@@ -50,12 +52,12 @@ class PreferencesRepository(private val context: Context) {
             } ?: DisplayMode.SYSTEM,
             soundEnabled = preferences[soundEnabledKey] ?: true,
             hideBuiltInLevels = preferences[hideBuiltInLevelsKey] ?: false,
-            unlockedLevel = preferences[unlockedKey] ?: 1,
+            unlockedLevel = preferences[unlockedKey] ?: levels.first().id,
             difficulty = preferences[difficultyKey]?.let { runCatching { Difficulty.valueOf(it) }.getOrDefault(Difficulty.BEGINNER) } ?: Difficulty.BEGINNER,
             customLevels = customLevels,
             pieceColorTheme = preferences[pieceColorThemeKey]?.let { runCatching { PieceColorTheme.valueOf(it) }.getOrDefault(PieceColorTheme.CLASSIC) } ?: PieceColorTheme.CLASSIC,
-            bestTimes = ((1..20).toList() + customLevels.map { it.id }).mapNotNull { level ->
-                preferences[longPreferencesKey("best_time_$level")]?.let { level to it }
+            bestTimes = (levels.map { it.id } + customLevels.map { it.id }).mapNotNull { level ->
+                preferences[bestTimeKey(level)]?.let { level to it }
             }.toMap()
         )
     }
@@ -93,7 +95,7 @@ class PreferencesRepository(private val context: Context) {
     suspend fun deleteCustomLevel(id: Int) {
         context.dataStore.edit { preferences ->
             preferences[customLevelsKey] = encodeLevels(decodeLevels(preferences[customLevelsKey]).filterNot { it.id == id })
-            preferences.remove(longPreferencesKey("best_time_$id"))
+            preferences.remove(bestTimeKey(id))
         }
     }
 
@@ -121,15 +123,22 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun completeLevel(level: Int, elapsedSeconds: Long) {
         context.dataStore.edit { preferences ->
-            val bestKey = longPreferencesKey("best_time_$level")
+            val bestKey = bestTimeKey(level)
             val previous = preferences[bestKey]
             if (previous == null || elapsedSeconds < previous) preferences[bestKey] = elapsedSeconds
-            if (level in 1..20) {
-                preferences[unlockedKey] = maxOf(preferences[unlockedKey] ?: 1, (level + 1).coerceAtMost(20))
+            nextBuiltInLevel(level)?.let { next ->
+                val unlocked = preferences[unlockedKey] ?: levels.first().id
+                val unlockedIndex = levels.indexOfFirst { it.id == unlocked }.coerceAtLeast(0)
+                val nextIndex = levels.indexOfFirst { it.id == next.id }
+                if (nextIndex > unlockedIndex) preferences[unlockedKey] = next.id
             }
         }
     }
 }
+
+private fun bestTimeKey(levelId: Int) = longPreferencesKey(
+    if (levelId > 0) "built_in_v2_best_time_$levelId" else "best_time_$levelId"
+)
 
 private fun encodeLevels(levels: List<Level>): String {
     val root = JSONObject().put("version", 1).put("levels", JSONArray())

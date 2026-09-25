@@ -103,6 +103,7 @@ import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -136,6 +137,7 @@ import com.example.minitangram.game.pieceSpecs
 import com.example.minitangram.game.containsPoint
 import com.example.minitangram.game.colorFor
 import com.example.minitangram.game.transformedVertices
+import com.example.minitangram.game.isotropicVertices
 import com.example.minitangram.game.TARGET_AREA_BOTTOM
 import com.example.minitangram.ui.theme.DisplayMode
 import com.example.minitangram.ui.theme.MiniTangramTheme
@@ -144,6 +146,8 @@ import com.example.minitangram.game.snapEditorPose
 import com.example.minitangram.game.tidyEditorPoses
 import com.example.minitangram.game.centerEditorPoses
 import com.example.minitangram.game.initialPiecePoses
+import com.example.minitangram.game.isBuiltInLevelUnlocked
+import com.example.minitangram.game.nextBuiltInLevel
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
@@ -381,16 +385,21 @@ private fun LevelSelectScreen(
             modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
         ) {
             items(allLevels) { level ->
-                val unlocked = level.id < 0 || level.id <= progress.unlockedLevel
+                val unlocked = level.id < 0 || isBuiltInLevelUnlocked(level.id, progress.unlockedLevel)
                 val best = progress.bestTimes[level.id]
                 Card(
                     modifier = Modifier.height(132.dp).clickable(enabled = unlocked) { navController.navigate("game/${level.id}") },
                     shape = RoundedCornerShape(6.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = when {
-                            level.id < 0 -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f)
+                            level.id < 0 -> MaterialTheme.colorScheme.tertiaryContainer
                             unlocked -> MaterialTheme.colorScheme.surface
                             else -> MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        contentColor = if (level.id < 0) {
+                            MaterialTheme.colorScheme.onTertiaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
                         }
                     )
                 ) {
@@ -627,7 +636,8 @@ private fun GameScreen(
                             artworkColors = PieceKind.entries.associateWith { it.colorFor(colorTheme) }
                         },
                         onNext = {
-                            if (!isCustom && level.id < levels.size) navController.navigate("game/${level.id + 1}") { popUpTo("game/${level.id}") { inclusive = true } }
+                            val next = if (isCustom) null else nextBuiltInLevel(level.id)
+                            if (next != null) navController.navigate("game/${next.id}") { popUpTo("game/${level.id}") { inclusive = true } }
                             else navController.popBackStack("levels", inclusive = false)
                         },
                         modifier = Modifier.fillMaxWidth().weight(1f)
@@ -936,9 +946,16 @@ private fun TangramBoard(
                 )
             }
         } else {
-            val targetPath = targetUnionPath(targetPieces, size.width / size.height, size.width, size.height)
-            drawPath(targetPath, onSurface.copy(alpha = if (dark) .14f else .07f))
-            drawPath(targetPath, onSurface.copy(alpha = if (dark) .78f else .48f), style = Stroke(2.dp.toPx()))
+            val pathScale = size.width / SILHOUETTE_PATH_SCALE
+            val targetPath = targetUnionPath(targetPieces, size.width / size.height)
+            withTransform({ scale(pathScale, pathScale, Offset.Zero) }) {
+                drawPath(targetPath, onSurface.copy(alpha = if (dark) .14f else .07f))
+                drawPath(
+                    targetPath,
+                    onSurface.copy(alpha = if (dark) .78f else .48f),
+                    style = Stroke(2.dp.toPx() / pathScale)
+                )
+            }
             targetPieces.firstOrNull { it.spec.kind == hintTarget }?.let { targetPiece ->
                 drawPiece(targetPiece, accent.copy(alpha = .25f), accent, 2.dp.toPx())
             }
@@ -1006,12 +1023,16 @@ private fun SettingChoice(
     }
 }
 
-private fun targetUnionPath(pieces: List<PlayingPiece>, normalizedYScale: Float, width: Float, height: Float): Path {
+private const val SILHOUETTE_PATH_SCALE = 1000f
+
+private fun targetUnionPath(pieces: List<PlayingPiece>, normalizedYScale: Float): Path {
     val paths = pieces.map { piece ->
-        val vertices = transformedVertices(piece, normalizedYScale)
+        val vertices = isotropicVertices(piece, normalizedYScale)
         Path().apply {
-            moveTo(vertices.first().x * width, vertices.first().y * height)
-            vertices.drop(1).forEach { lineTo(it.x * width, it.y * height) }
+            moveTo(vertices.first().x * SILHOUETTE_PATH_SCALE, vertices.first().y * SILHOUETTE_PATH_SCALE)
+            vertices.drop(1).forEach {
+                lineTo(it.x * SILHOUETTE_PATH_SCALE, it.y * SILHOUETTE_PATH_SCALE)
+            }
             close()
         }
     }
@@ -1027,9 +1048,7 @@ private fun EditorPreviewBoard(
 ) {
     val sourceScale = (if (sourceSize.height > 0) sourceSize.width.toFloat() / sourceSize.height else 1f).coerceAtLeast(.01f)
     val sourcePieces = poses.map { (kind, pose) -> PlayingPiece(pieceSpecs.first { it.kind == kind }, pose) }
-    val sourceVertices = sourcePieces.map { piece ->
-        piece to transformedVertices(piece, sourceScale).map { vertex -> Vec2(vertex.x, vertex.y / sourceScale) }
-    }
+    val sourceVertices = sourcePieces.map { piece -> piece to isotropicVertices(piece, sourceScale) }
     val vertices = sourceVertices.flatMap { it.second }
     val minX = vertices.minOfOrNull { it.x } ?: 0f
     val maxX = vertices.maxOfOrNull { it.x } ?: 1f
@@ -1054,16 +1073,19 @@ private fun EditorPreviewBoard(
                 drawPreviewPolygon(pieceVertices, onSurface.copy(alpha = if (dark) .18f else .08f), onSurface.copy(alpha = if (dark) .78f else .48f), 2.dp.toPx())
             }
         } else {
-            val paths = mappedPieces.map { (_, pieceVertices) ->
-                Path().apply {
-                    moveTo(pieceVertices.first().x, pieceVertices.first().y)
-                    pieceVertices.drop(1).forEach { lineTo(it.x, it.y) }
-                    close()
-                }
+            val pathScale = scale / SILHOUETTE_PATH_SCALE
+            val path = targetUnionPath(sourcePieces, sourceScale)
+            withTransform({
+                translate(offsetX, offsetY)
+                scale(pathScale, pathScale, Offset.Zero)
+            }) {
+                drawPath(path, onSurface.copy(alpha = if (dark) .14f else .07f))
+                drawPath(
+                    path,
+                    onSurface.copy(alpha = if (dark) .78f else .48f),
+                    style = Stroke(2.dp.toPx() / pathScale)
+                )
             }
-            val path = paths.drop(1).fold(paths.first()) { result, next -> Path.combine(PathOperation.Union, result, next) }
-            drawPath(path, onSurface.copy(alpha = if (dark) .14f else .07f))
-            drawPath(path, onSurface.copy(alpha = if (dark) .78f else .48f), style = Stroke(2.dp.toPx()))
         }
     }
 }

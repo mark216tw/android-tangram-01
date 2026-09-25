@@ -208,6 +208,11 @@ fun transformedVertices(piece: PlayingPiece, normalizedYScale: Float = 1f): List
     }
 }
 
+fun isotropicVertices(piece: PlayingPiece, normalizedYScale: Float): List<Vec2> =
+    transformedVertices(piece, normalizedYScale).map { vertex ->
+        Vec2(vertex.x, vertex.y / normalizedYScale)
+    }
+
 fun containsPoint(vertices: List<Vec2>, point: Vec2): Boolean {
     var inside = false
     var j = vertices.lastIndex
