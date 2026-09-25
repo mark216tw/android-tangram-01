@@ -56,6 +56,7 @@ import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Delete
@@ -429,6 +430,7 @@ private fun InstructionsScreen(navController: NavController) {
              Instruction("肆 · 吸附", "位置、角度及方向接近正確時，拼片會自動吸附並鎖定。")
              Instruction("伍 · 提示", "提示會短暫標示一塊尚未完成的拼片與它的目標位置。")
              Instruction("陸 · 自訂關卡", "在關卡頁可建立、編輯及刪除自訂關卡，也能匯入或匯出關卡檔案。建立時可拖曳拼片、旋轉、翻面，或用兩指移動整個圖案；排列完成後輸入名稱儲存即可遊玩。")
+             Instruction("柒 · 完成後著色", "完成拼圖後，點擊右上方調色盤圖示進入著色模式。點選拼片可套用主題或自訂顏色；點擊圖案空白處可取消選取。完成後可使用分享圖示分享著色後的作品，更新圖示則會重新挑戰。")
              HorizontalDivider(Modifier.padding(vertical = 20.dp))
             Text("完成關卡會記錄最佳時間並解鎖下一幅圖案。遊戲不需要網路連線。", color = MaterialTheme.colorScheme.outline, lineHeight = 23.sp)
         }
@@ -478,15 +480,7 @@ private fun SettingsScreen(
             PieceColorTheme.entries.chunked(2).forEach { themes ->
             Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             themes.forEach { theme ->
-                val label = when (theme) {
-                    PieceColorTheme.CLASSIC -> "經典"
-                    PieceColorTheme.BRIGHT -> "高彩"
-                    PieceColorTheme.PASTEL -> "柔和"
-                    PieceColorTheme.OCEAN -> "海洋"
-                    PieceColorTheme.SUNSET -> "夕照"
-                    PieceColorTheme.MONOCHROME -> "單色"
-                }
-                SettingChoice(label, colorTheme == theme, { onColorThemeChange(theme) }, Modifier.weight(1f)) {
+                SettingChoice(themeLabel(theme), colorTheme == theme, { onColorThemeChange(theme) }, Modifier.weight(1f)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                         PieceKind.entries.forEach { kind ->
                             Box(Modifier.weight(1f).height(10.dp).background(Color(kind.colorFor(theme)), RoundedCornerShape(2.dp)))
@@ -532,6 +526,11 @@ private fun GameScreen(
 ) {
     val context = LocalContext.current
     var boardSize by remember { mutableStateOf(IntSize.Zero) }
+    var coloring by remember { mutableStateOf(false) }
+    var selectedColoringPiece by remember { mutableStateOf<PieceKind?>(null) }
+    var artworkColors by remember(colorTheme) {
+        mutableStateOf(PieceKind.entries.associateWith { it.colorFor(colorTheme) })
+    }
     val boardYScale = if (boardSize.height > 0) boardSize.width.toFloat() / boardSize.height else 1f
     val canvasLevel = if (boardSize.height > 0) level.forCanvas(boardYScale) else level
     val displayLevel = if (level.id > 0) canvasLevel.copy(targets = centerEditorPoses(canvasLevel.targets, boardYScale)) else canvasLevel
@@ -562,8 +561,23 @@ private fun GameScreen(
                 title = { Column { Text("${level.id.toString().padStart(2, '0')} · ${level.name}"); Text(formatTime(state.elapsedSeconds), fontSize = 12.sp, color = MaterialTheme.colorScheme.outline) } },
                 navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Rounded.Close, "離開關卡") } },
                 actions = {
-                    if (!state.completed) IconButton(onClick = game::hint) { Icon(Icons.Rounded.Lightbulb, "提示") }
-                    IconButton(onClick = game::reset) { Icon(Icons.Rounded.Refresh, "重置") }
+                    if (state.completed) {
+                        IconButton(onClick = {
+                            if (!coloring && selectedColoringPiece == null) selectedColoringPiece = PieceKind.LARGE_ONE
+                            coloring = !coloring
+                        }) { Icon(Icons.Rounded.Palette, "調色盤") }
+                        IconButton(onClick = {
+                            shareCompletedLevel(context, displayLevel, state.pieces, artworkColors, state.elapsedSeconds)
+                        }) { Icon(Icons.Rounded.Share, "分享作品") }
+                    } else {
+                        IconButton(onClick = game::hint) { Icon(Icons.Rounded.Lightbulb, "提示") }
+                    }
+                    IconButton(onClick = {
+                        game.reset()
+                        coloring = false
+                        selectedColoringPiece = null
+                        artworkColors = PieceKind.entries.associateWith { it.colorFor(colorTheme) }
+                    }) { Icon(Icons.Rounded.Refresh, "重置") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
@@ -572,38 +586,56 @@ private fun GameScreen(
             if (!state.completed) GameControls(state.selected, game)
         }
     ) { padding ->
-        val contentModifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).padding(12.dp)
+        val contentModifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)
         if (state.completed && boardSize != IntSize.Zero) {
             val density = LocalDensity.current
             Column(
-                contentModifier.navigationBarsPadding().padding(bottom = 12.dp),
+                contentModifier.padding(start = 12.dp, top = 12.dp, end = 12.dp).navigationBarsPadding(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 CompletedTangramBoard(
                     pieces = state.pieces,
                     virtualBoardSize = boardSize,
-                    colorTheme = colorTheme,
+                    colors = artworkColors,
+                    selectedPiece = selectedColoringPiece.takeIf { coloring },
+                    onPieceSelected = { if (coloring) selectedColoringPiece = it },
                     modifier = Modifier.fillMaxWidth().height(with(density) { (boardSize.height * TARGET_AREA_BOTTOM).toDp() })
                 )
                 Spacer(Modifier.height(12.dp))
-                CompletionPanel(
-                    level = level,
-                    elapsedSeconds = state.elapsedSeconds,
-                    bestTime = bestTime,
-                    hintsUsed = state.hintsUsed,
-                    isCustom = isCustom,
-                    onRetry = game::reset,
-                    onShare = { shareCompletedLevel(context, displayLevel, state.pieces, colorTheme, state.elapsedSeconds) },
-                    onNext = {
-                        if (!isCustom && level.id < levels.size) navController.navigate("game/${level.id + 1}") { popUpTo("game/${level.id}") { inclusive = true } }
-                        else navController.popBackStack("levels", inclusive = false)
-                    },
-                    onLevels = { navController.popBackStack() },
-                    modifier = Modifier.fillMaxWidth().weight(1f)
-                )
+                if (coloring) {
+                    ColoringPanel(
+                        selectedPiece = selectedColoringPiece,
+                        colors = artworkColors,
+                        onThemeSelected = { theme -> artworkColors = PieceKind.entries.associateWith { it.colorFor(theme) } },
+                        onColorSelected = { color ->
+                            selectedColoringPiece?.let { kind -> artworkColors = artworkColors + (kind to color) }
+                        },
+                        onDone = { coloring = false },
+                        modifier = Modifier.fillMaxWidth().weight(1f)
+                    )
+                } else {
+                    CompletionPanel(
+                        level = level,
+                        elapsedSeconds = state.elapsedSeconds,
+                        bestTime = bestTime,
+                        hintsUsed = state.hintsUsed,
+                        isCustom = isCustom,
+                        onRetry = {
+                            game.reset()
+                            coloring = false
+                            selectedColoringPiece = null
+                            artworkColors = PieceKind.entries.associateWith { it.colorFor(colorTheme) }
+                        },
+                        onNext = {
+                            if (!isCustom && level.id < levels.size) navController.navigate("game/${level.id + 1}") { popUpTo("game/${level.id}") { inclusive = true } }
+                            else navController.popBackStack("levels", inclusive = false)
+                        },
+                        modifier = Modifier.fillMaxWidth().weight(1f)
+                    )
+                }
             }
         } else {
-            Box(contentModifier.onSizeChanged { if (boardSize == IntSize.Zero) boardSize = it }) {
+            Box(contentModifier.padding(12.dp).onSizeChanged { if (boardSize == IntSize.Zero) boardSize = it }) {
                 TangramBoard(
                     displayLevel,
                     state.pieces,
@@ -629,9 +661,7 @@ private fun CompletionPanel(
     hintsUsed: Int,
     isCustom: Boolean,
     onRetry: () -> Unit,
-    onShare: () -> Unit,
     onNext: () -> Unit,
-    onLevels: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -666,30 +696,150 @@ private fun CompletionPanel(
                 Button(onClick = onNext) { Text("前進下一關") }
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onLevels) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回關卡選擇") }
-            IconButton(onClick = onShare) { Icon(Icons.Rounded.Share, "分享圖案") }
-        }
     }
+}
+
+@Composable
+private fun ColoringPanel(
+    selectedPiece: PieceKind?,
+    colors: Map<PieceKind, Long>,
+    onThemeSelected: (PieceColorTheme) -> Unit,
+    onColorSelected: (Long) -> Unit,
+    onDone: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier
+            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = .25f), RoundedCornerShape(10.dp))
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            selectedPiece?.let { "已選取：${pieceLabel(it)}" } ?: "請點選一塊拼片",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text("套用主題或選取顏色修改目前拼片", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+        Text("主題", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        PieceColorTheme.entries.chunked(2).forEach { themes ->
+            Row(
+                Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                themes.forEach { theme ->
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(7.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = .3f), RoundedCornerShape(7.dp))
+                            .clickable { onThemeSelected(theme) }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(themeLabel(theme), fontSize = 12.sp)
+                        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            PieceKind.entries.forEach { kind ->
+                                Box(Modifier.weight(1f).height(10.dp).background(Color(kind.colorFor(theme)), RoundedCornerShape(2.dp)))
+                            }
+                        }
+                    }
+                }
+                if (themes.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+        Text("自訂顏色", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
+        colorPalette.chunked(6).forEach { colorsInRow ->
+            Row(
+                Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                colorsInRow.forEach { color ->
+                    val selected = selectedPiece?.let { colors[it] == color } == true
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(34.dp)
+                            .background(Color(color), RoundedCornerShape(7.dp))
+                            .border(
+                                if (selected) 3.dp else 1.dp,
+                                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = .4f),
+                                RoundedCornerShape(7.dp)
+                            )
+                            .clickable(enabled = selectedPiece != null) { onColorSelected(color) }
+                    )
+                }
+                repeat(6 - colorsInRow.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+        TextButton(onClick = onDone, modifier = Modifier.padding(top = 2.dp)) { Text("完成上色") }
+    }
+}
+
+private val colorPalette = listOf(
+    0xFFB71C1CL, 0xFFE53935L, 0xFFFF5252L, 0xFFFF80ABL, 0xFFD84315L, 0xFFFF8F00L,
+    0xFFFFB300L, 0xFFFFD600L, 0xFFC6FF00L, 0xFF43A047L, 0xFF00C853L, 0xFF80CBC4L,
+    0xFF00ACC1L, 0xFF29B6F6L, 0xFF1E88E5L, 0xFF0D47A1L, 0xFF3949ABL, 0xFF651FFFL,
+    0xFF8E24AAL, 0xFFCE93D8L, 0xFF6D4C41L, 0xFF263238L, 0xFF90A4AEL, 0xFFFFFFFFL
+)
+
+private fun pieceLabel(kind: PieceKind): String = when (kind) {
+    PieceKind.LARGE_ONE -> "大三角形一"
+    PieceKind.LARGE_TWO -> "大三角形二"
+    PieceKind.MEDIUM -> "中三角形"
+    PieceKind.SMALL_ONE -> "小三角形一"
+    PieceKind.SMALL_TWO -> "小三角形二"
+    PieceKind.SQUARE -> "正方形"
+    PieceKind.PARALLELOGRAM -> "平行四邊形"
+}
+
+private fun themeLabel(theme: PieceColorTheme): String = when (theme) {
+    PieceColorTheme.CLASSIC -> "經典"
+    PieceColorTheme.BRIGHT -> "高彩"
+    PieceColorTheme.OCEAN -> "海洋"
+    PieceColorTheme.SUNSET -> "夕照"
+    PieceColorTheme.RAINBOW -> "彩虹"
+    PieceColorTheme.NEON -> "霓虹"
+    PieceColorTheme.CANDY -> "糖果"
+    PieceColorTheme.FOREST -> "森林"
+    PieceColorTheme.EARTH -> "大地"
+    PieceColorTheme.NIGHT -> "夜色"
+    PieceColorTheme.AURORA -> "極光"
+    PieceColorTheme.GARDEN -> "花園"
+    PieceColorTheme.RETRO -> "復古"
+    PieceColorTheme.BEACH -> "海灘"
 }
 
 @Composable
 private fun CompletedTangramBoard(
     pieces: List<PlayingPiece>,
     virtualBoardSize: IntSize,
-    colorTheme: PieceColorTheme,
+    colors: Map<PieceKind, Long>,
+    selectedPiece: PieceKind?,
+    onPieceSelected: (PieceKind?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val surface = MaterialTheme.colorScheme.surface
     val outline = MaterialTheme.colorScheme.outline
+    val selectedStroke = MaterialTheme.colorScheme.primary
     Canvas(
         modifier
             .background(surface, RoundedCornerShape(8.dp))
             .border(1.dp, outline.copy(alpha = .25f), RoundedCornerShape(8.dp))
+            .pointerInput(Unit) {
+                detectTapGestures { position ->
+                    val normalizedYScale = size.width / virtualBoardSize.height.toFloat()
+                    val point = Vec2(position.x / size.width, position.y / virtualBoardSize.height.toFloat())
+                    val selected = pieces.asReversed()
+                        .firstOrNull { piece ->
+                            containsPoint(transformedVertices(piece, normalizedYScale), point)
+                        }
+                        ?.spec?.kind
+                    onPieceSelected(selected)
+                }
+            }
     ) {
         val virtualHeight = virtualBoardSize.height.toFloat()
         val normalizedYScale = size.width / virtualHeight
@@ -698,9 +848,9 @@ private fun CompletedTangramBoard(
                 piece = piece,
                 virtualHeight = virtualHeight,
                 normalizedYScale = normalizedYScale,
-                fill = Color(piece.spec.kind.colorFor(colorTheme)).copy(alpha = .82f),
-                stroke = Color.Black.copy(alpha = .35f),
-                strokeWidth = 1.dp.toPx()
+                fill = Color(colors.getValue(piece.spec.kind)).copy(alpha = .82f),
+                stroke = if (piece.spec.kind == selectedPiece) selectedStroke else Color.Black.copy(alpha = .35f),
+                strokeWidth = if (piece.spec.kind == selectedPiece) 3.dp.toPx() else 1.dp.toPx()
             )
         }
     }
@@ -1140,7 +1290,7 @@ private fun shareCompletedLevel(
     context: Context,
     level: Level,
     pieces: List<PlayingPiece>,
-    colorTheme: PieceColorTheme,
+    colors: Map<PieceKind, Long>,
     elapsedSeconds: Long
 ) {
     val bitmap = Bitmap.createBitmap(1080, 1080, Bitmap.Config.ARGB_8888)
@@ -1175,7 +1325,7 @@ private fun shareCompletedLevel(
             polygon.drop(1).forEach { lineTo(it.x * scale + offsetX, it.y * scale + offsetY) }
             close()
         }
-        fill.color = kind.colorFor(colorTheme).toInt()
+        fill.color = colors.getValue(kind).toInt()
         canvas.drawPath(path, fill)
         canvas.drawPath(path, stroke)
     }

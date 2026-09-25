@@ -25,7 +25,10 @@ fun Level.forCanvas(yScale: Float): Level {
     }, canvasYScale = yScale)
 }
 enum class Difficulty { BEGINNER, ADVANCED }
-enum class PieceColorTheme { CLASSIC, BRIGHT, PASTEL, OCEAN, SUNSET, MONOCHROME }
+enum class PieceColorTheme {
+    CLASSIC, BRIGHT, OCEAN, SUNSET, RAINBOW,
+    NEON, CANDY, FOREST, EARTH, NIGHT, AURORA, GARDEN, RETRO, BEACH
+}
 data class PlayingPiece(
     val spec: PieceSpec,
     val pose: Pose,
@@ -82,15 +85,6 @@ fun PieceKind.colorFor(theme: PieceColorTheme): Long = when (theme) {
         PieceKind.SQUARE -> 0xFFFFD600
         PieceKind.PARALLELOGRAM -> 0xFF6D4C41
     }
-    PieceColorTheme.PASTEL -> when (this) {
-        PieceKind.LARGE_ONE -> 0xFFE99A9A
-        PieceKind.LARGE_TWO -> 0xFFF2C28B
-        PieceKind.MEDIUM -> 0xFF9CCDBD
-        PieceKind.SMALL_ONE -> 0xFF9CB9D8
-        PieceKind.SMALL_TWO -> 0xFFC1ADD6
-        PieceKind.SQUARE -> 0xFFF1D98A
-        PieceKind.PARALLELOGRAM -> 0xFFB89D8F
-    }
     PieceColorTheme.OCEAN -> when (this) {
         PieceKind.LARGE_ONE -> 0xFF006D77
         PieceKind.LARGE_TWO -> 0xFF028090
@@ -109,14 +103,95 @@ fun PieceKind.colorFor(theme: PieceColorTheme): Long = when (theme) {
         PieceKind.SQUARE -> 0xFFFFC857
         PieceKind.PARALLELOGRAM -> 0xFF6D597A
     }
-    PieceColorTheme.MONOCHROME -> when (this) {
-        PieceKind.LARGE_ONE -> 0xFF263238
-        PieceKind.LARGE_TWO -> 0xFF37474F
-        PieceKind.MEDIUM -> 0xFF455A64
-        PieceKind.SMALL_ONE -> 0xFF546E7A
-        PieceKind.SMALL_TWO -> 0xFF607D8B
-        PieceKind.SQUARE -> 0xFF78909C
-        PieceKind.PARALLELOGRAM -> 0xFF90A4AE
+    PieceColorTheme.RAINBOW -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFFE53935
+        PieceKind.LARGE_TWO -> 0xFFFF8F00
+        PieceKind.MEDIUM -> 0xFFFFD600
+        PieceKind.SMALL_ONE -> 0xFF43A047
+        PieceKind.SMALL_TWO -> 0xFF1E88E5
+        PieceKind.SQUARE -> 0xFF3949AB
+        PieceKind.PARALLELOGRAM -> 0xFF8E24AA
+    }
+    PieceColorTheme.NEON -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFFFF1744
+        PieceKind.LARGE_TWO -> 0xFFFF9100
+        PieceKind.MEDIUM -> 0xFFC6FF00
+        PieceKind.SMALL_ONE -> 0xFF00E676
+        PieceKind.SMALL_TWO -> 0xFF00E5FF
+        PieceKind.SQUARE -> 0xFF651FFF
+        PieceKind.PARALLELOGRAM -> 0xFFF500E5
+    }
+    PieceColorTheme.CANDY -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFFFF80AB
+        PieceKind.LARGE_TWO -> 0xFFFFAB91
+        PieceKind.MEDIUM -> 0xFFFFF59D
+        PieceKind.SMALL_ONE -> 0xFFA5D6A7
+        PieceKind.SMALL_TWO -> 0xFF81D4FA
+        PieceKind.SQUARE -> 0xFFB39DDB
+        PieceKind.PARALLELOGRAM -> 0xFFF48FB1
+    }
+    PieceColorTheme.FOREST -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFF1B4332
+        PieceKind.LARGE_TWO -> 0xFF2D6A4F
+        PieceKind.MEDIUM -> 0xFF40916C
+        PieceKind.SMALL_ONE -> 0xFF74C69D
+        PieceKind.SMALL_TWO -> 0xFF95A65A
+        PieceKind.SQUARE -> 0xFFDDA15E
+        PieceKind.PARALLELOGRAM -> 0xFF6F4E37
+    }
+    PieceColorTheme.EARTH -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFF9C3D2E
+        PieceKind.LARGE_TWO -> 0xFFD2691E
+        PieceKind.MEDIUM -> 0xFFE0A458
+        PieceKind.SMALL_ONE -> 0xFF8A9A5B
+        PieceKind.SMALL_TWO -> 0xFF52796F
+        PieceKind.SQUARE -> 0xFFC2A878
+        PieceKind.PARALLELOGRAM -> 0xFF5C4033
+    }
+    PieceColorTheme.NIGHT -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFF14213D
+        PieceKind.LARGE_TWO -> 0xFF283B63
+        PieceKind.MEDIUM -> 0xFF3F5E8C
+        PieceKind.SMALL_ONE -> 0xFF36C5C8
+        PieceKind.SMALL_TWO -> 0xFF7768AE
+        PieceKind.SQUARE -> 0xFFE0E7FF
+        PieceKind.PARALLELOGRAM -> 0xFFB8A1D9
+    }
+    PieceColorTheme.AURORA -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFF12355B
+        PieceKind.LARGE_TWO -> 0xFF087E8B
+        PieceKind.MEDIUM -> 0xFF00A896
+        PieceKind.SMALL_ONE -> 0xFF52B788
+        PieceKind.SMALL_TWO -> 0xFF72EFDD
+        PieceKind.SQUARE -> 0xFF9B5DE5
+        PieceKind.PARALLELOGRAM -> 0xFFF15BB5
+    }
+    PieceColorTheme.GARDEN -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFFC44536
+        PieceKind.LARGE_TWO -> 0xFFF4A261
+        PieceKind.MEDIUM -> 0xFFE9C46A
+        PieceKind.SMALL_ONE -> 0xFF6A994E
+        PieceKind.SMALL_TWO -> 0xFFA7C957
+        PieceKind.SQUARE -> 0xFF6CB4EE
+        PieceKind.PARALLELOGRAM -> 0xFF9B72AA
+    }
+    PieceColorTheme.RETRO -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFF9B2226
+        PieceKind.LARGE_TWO -> 0xFFCA6702
+        PieceKind.MEDIUM -> 0xFFEE9B00
+        PieceKind.SMALL_ONE -> 0xFF606C38
+        PieceKind.SMALL_TWO -> 0xFF283618
+        PieceKind.SQUARE -> 0xFFE9D8A6
+        PieceKind.PARALLELOGRAM -> 0xFF6C584C
+    }
+    PieceColorTheme.BEACH -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFFFF6B6B
+        PieceKind.LARGE_TWO -> 0xFFFFA94D
+        PieceKind.MEDIUM -> 0xFFFFD166
+        PieceKind.SMALL_ONE -> 0xFF4ECDC4
+        PieceKind.SMALL_TWO -> 0xFF48BFE3
+        PieceKind.SQUARE -> 0xFF90DBF4
+        PieceKind.PARALLELOGRAM -> 0xFF0077B6
     }
 }
 

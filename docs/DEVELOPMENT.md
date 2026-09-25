@@ -56,7 +56,7 @@ Gradle Wrapper 已包含於倉庫，不需要另外安裝 Gradle。
 | 單元測試報告 | `app/build/reports/tests/testDebugUnitTest/index.html` |
 | Lint 報告 | `app/build/reports/lint-results-debug.html` |
 
-`prerelease` Build Type 的版本名稱為 `1.0.0-prerelease`，啟用 R8 程式碼與資源壓縮，並使用 Android Debug 金鑰簽署，適合測試發行，不適合正式上架。
+`prerelease` Build Type 的版本名稱為 `1.1.0-prerelease`，啟用 R8 程式碼與資源壓縮，並使用 Android Debug 金鑰簽署，適合測試發行，不適合正式上架。
 
 ## 新增關卡
 

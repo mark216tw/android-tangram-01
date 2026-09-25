@@ -167,7 +167,7 @@ fun initialPiecePoses(normalizedYScale: Float): Map<PieceKind, Pose> {
     val bottomRowY = minOf(
         centers.getValue(PieceKind.SMALL_ONE).y + topOffset(PieceKind.SMALL_ONE),
         .97f - bottomKinds.maxOf(::pieceHeight)
-    )
+    ) + .009f
     return centers.mapValues { (kind, center) ->
         val rowY = if (kind in bottomKinds) bottomRowY else topRowY
         Pose(Vec2(center.x, rowY - topOffset(kind)))
