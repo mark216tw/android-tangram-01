@@ -122,3 +122,13 @@ fun tidyEditorPoses(poses: Map<PieceKind, Pose>, yScale: Float, threshold: Float
     poses.forEach { (kind, pose) -> result[kind] = snapEditorPose(kind, pose, result, yScale, threshold) }
     return result
 }
+
+fun centerEditorPoses(poses: Map<PieceKind, Pose>, normalizedYScale: Float): Map<PieceKind, Pose> {
+    if (poses.isEmpty() || normalizedYScale <= 0f) return poses
+    val vertices = poses.map { (kind, pose) ->
+        transformedVertices(PlayingPiece(pieceSpecs.first { it.kind == kind }, pose), normalizedYScale)
+    }.flatten()
+    val dx = .5f - (vertices.minOf { it.x } + vertices.maxOf { it.x }) / 2f
+    val dy = TARGET_AREA_BOTTOM / 2f - (vertices.minOf { it.y } + vertices.maxOf { it.y }) / 2f
+    return poses.mapValues { (_, pose) -> pose.copy(center = Vec2(pose.center.x + dx, pose.center.y + dy)) }
+}

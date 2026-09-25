@@ -1,8 +1,15 @@
 package com.example.minitangram
 
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Paint
+import android.graphics.Path as AndroidPath
+import android.graphics.Canvas as AndroidCanvas
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.net.Uri
+import androidx.core.content.FileProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
@@ -18,6 +25,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import com.example.minitangram.game.forCanvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -55,6 +63,9 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -85,6 +96,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
@@ -130,9 +142,12 @@ import com.example.minitangram.ui.theme.MiniTangramTheme
 import kotlinx.coroutines.launch
 import com.example.minitangram.game.snapEditorPose
 import com.example.minitangram.game.tidyEditorPoses
+import com.example.minitangram.game.centerEditorPoses
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
+import java.io.File
+import java.io.FileOutputStream
 
 @Composable
 fun MiniTangramApp(onExit: () -> Unit) {
@@ -375,18 +390,17 @@ private fun LevelSelectScreen(
                     )
                 ) {
                     Box(Modifier.fillMaxSize()) {
-                    Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = if (level.id < 0) 52.dp else 16.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(level.id.toString().padStart(2, '0'), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                            if (level.id >= 0) Icon(if (unlocked) Icons.Rounded.Check else Icons.Rounded.Lock, if (unlocked) "已解鎖" else "未解鎖", tint = if (best != null) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline)
+                            if (level.id < 0) {
+                                IconButton(onClick = { navController.navigate("editor/${level.id}") }, modifier = Modifier.size(28.dp)) { Icon(Icons.Rounded.Edit, "編輯") }
+                            } else {
+                                Icon(if (unlocked) Icons.Rounded.Check else Icons.Rounded.Lock, if (unlocked) "已解鎖" else "未解鎖", tint = if (best != null) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline)
+                            }
                         }
                         Text(level.name, fontSize = 23.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         Text(best?.let { "已完成 · 最佳 ${formatTime(it)}" } ?: if (unlocked) "尚未完成" else "完成前一關解鎖", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
-                    }
-                    if (level.id < 0) {
-                        Column(Modifier.align(Alignment.CenterEnd).padding(end = 4.dp)) {
-                            IconButton(onClick = { navController.navigate("editor/${level.id}") }) { Icon(Icons.Rounded.Edit, "編輯") }
-                        }
                     }
                     }
                 }
@@ -512,6 +526,7 @@ private fun GameScreen(
     isCustom: Boolean,
     colorTheme: PieceColorTheme
 ) {
+    val context = LocalContext.current
     var boardSize by remember { mutableStateOf(IntSize.Zero) }
     val displayLevel = if (boardSize.height > 0) level.forCanvas(boardSize.width.toFloat() / boardSize.height) else level
     val factory = remember(displayLevel) {
@@ -547,7 +562,26 @@ private fun GameScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
-        bottomBar = { GameControls(state.selected, game) }
+        bottomBar = {
+            Column {
+                if (state.completed) {
+                    CompletionPanel(
+                        level = level,
+                        elapsedSeconds = state.elapsedSeconds,
+                        bestTime = bestTime,
+                        hintsUsed = state.hintsUsed,
+                        isCustom = isCustom,
+                        onShare = { shareCompletedLevel(context, displayLevel, state.pieces, colorTheme, state.elapsedSeconds) },
+                        onNext = {
+                            if (!isCustom && level.id < levels.size) navController.navigate("game/${level.id + 1}") { popUpTo("game/${level.id}") { inclusive = true } }
+                            else navController.popBackStack("levels", inclusive = false)
+                        },
+                        onLevels = { navController.popBackStack() }
+                    )
+                }
+                GameControls(state.selected, game)
+            }
+        }
     ) { padding ->
         TangramBoard(
             displayLevel,
@@ -563,19 +597,36 @@ private fun GameScreen(
         )
     }
 
-    if (state.completed) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("巧成 · ${level.name}") },
-            text = { Column { Text("完成時間 ${formatTime(state.elapsedSeconds)}"); Text(if (bestTime == null || state.elapsedSeconds < bestTime) "新的最佳紀錄" else "最佳紀錄 ${formatTime(bestTime)}", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp)); if (state.hintsUsed > 0) Text("使用提示 ${state.hintsUsed} 次", fontSize = 13.sp, color = MaterialTheme.colorScheme.outline) } },
-            confirmButton = {
-                Button(onClick = {
-                    if (!isCustom && level.id < levels.size) navController.navigate("game/${level.id + 1}") { popUpTo("game/${level.id}") { inclusive = true } }
-                    else navController.popBackStack("levels", inclusive = false)
-                }) { Text(if (!isCustom && level.id < levels.size) "下一關" else "返回關卡") }
-            },
-            dismissButton = { TextButton(onClick = { navController.popBackStack() }) { Text("關卡選擇") } }
+}
+
+@Composable
+private fun CompletionPanel(
+    level: Level,
+    elapsedSeconds: Long,
+    bestTime: Long?,
+    hintsUsed: Int,
+    isCustom: Boolean,
+    onShare: () -> Unit,
+    onNext: () -> Unit,
+    onLevels: () -> Unit
+) {
+    Column(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("巧成 · ${level.name}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text("完成時間 ${formatTime(elapsedSeconds)}", modifier = Modifier.padding(top = 2.dp))
+        Text(
+            if (bestTime == null || elapsedSeconds <= bestTime) "新的最佳紀錄" else "最佳紀錄 ${formatTime(bestTime)}",
+            color = MaterialTheme.colorScheme.primary,
+            fontSize = 13.sp
         )
+        if (hintsUsed > 0) Text("使用提示 $hintsUsed 次", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+            FilledTonalButton(onClick = onShare) { Icon(Icons.Rounded.Share, null); Spacer(Modifier.width(4.dp)); Text("分享圖案") }
+            Button(onClick = onNext) { Text(if (!isCustom && level.id < levels.size) "下一關" else "返回關卡") }
+            TextButton(onClick = onLevels) { Text("關卡選擇") }
+        }
     }
 }
 
@@ -723,6 +774,65 @@ private fun targetUnionPath(pieces: List<PlayingPiece>, normalizedYScale: Float,
     return paths.drop(1).fold(paths.first()) { result, path -> Path.combine(PathOperation.Union, result, path) }
 }
 
+@Composable
+private fun EditorPreviewBoard(
+    poses: Map<PieceKind, Pose>,
+    sourceSize: IntSize,
+    difficulty: Difficulty,
+    colorTheme: PieceColorTheme,
+    modifier: Modifier = Modifier
+) {
+    val sourceScale = if (sourceSize.height > 0) sourceSize.width.toFloat() / sourceSize.height else 1f
+    val sourcePieces = poses.map { (kind, pose) -> PlayingPiece(pieceSpecs.first { it.kind == kind }, pose) }
+    val sourceVertices = sourcePieces.map { it to transformedVertices(it, sourceScale) }
+    val vertices = sourceVertices.flatMap { it.second }
+    val minX = vertices.minOfOrNull { it.x } ?: 0f
+    val maxX = vertices.maxOfOrNull { it.x } ?: 1f
+    val minY = vertices.minOfOrNull { it.y } ?: 0f
+    val maxY = vertices.maxOfOrNull { it.y } ?: 1f
+    val boundsWidth = (maxX - minX).coerceAtLeast(.0001f)
+    val boundsHeight = (maxY - minY).coerceAtLeast(.0001f)
+    val margin = .05f
+    val previewAspectRatio = boundsWidth / boundsHeight
+    fun mapVertex(vertex: Vec2) = Vec2(
+        margin + (vertex.x - minX) / boundsWidth * (1f - margin * 2f),
+        margin + (vertex.y - minY) / boundsHeight * (1f - margin * 2f)
+    )
+    val mappedPieces = sourceVertices.map { (piece, pieceVertices) -> piece to pieceVertices.map(::mapVertex) }
+    val surface = MaterialTheme.colorScheme.surface
+    val outline = MaterialTheme.colorScheme.outline
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val dark = surface.luminance() < .5f
+    Canvas(modifier.aspectRatio(previewAspectRatio).background(surface, RoundedCornerShape(8.dp)).border(1.dp, outline.copy(alpha = .25f), RoundedCornerShape(8.dp))) {
+        if (difficulty == Difficulty.BEGINNER) {
+            mappedPieces.forEach { (_, pieceVertices) ->
+                drawPreviewPolygon(pieceVertices, size.width, size.height, onSurface.copy(alpha = if (dark) .18f else .08f), onSurface.copy(alpha = if (dark) .78f else .48f), 2.dp.toPx())
+            }
+        } else {
+            val paths = mappedPieces.map { (_, pieceVertices) ->
+                Path().apply {
+                    moveTo(pieceVertices.first().x * size.width, pieceVertices.first().y * size.height)
+                    pieceVertices.drop(1).forEach { lineTo(it.x * size.width, it.y * size.height) }
+                    close()
+                }
+            }
+            val path = paths.drop(1).fold(paths.first()) { result, next -> Path.combine(PathOperation.Union, result, next) }
+            drawPath(path, onSurface.copy(alpha = if (dark) .14f else .07f))
+            drawPath(path, onSurface.copy(alpha = if (dark) .78f else .48f), style = Stroke(2.dp.toPx()))
+        }
+    }
+}
+
+private fun DrawScope.drawPreviewPolygon(vertices: List<Vec2>, width: Float, height: Float, fill: Color, stroke: Color, strokeWidth: Float) {
+    val path = Path().apply {
+        moveTo(vertices.first().x * width, vertices.first().y * height)
+        vertices.drop(1).forEach { lineTo(it.x * width, it.y * height) }
+        close()
+    }
+    drawPath(path, fill)
+    drawPath(path, stroke, style = Stroke(strokeWidth))
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LevelEditorScreen(
@@ -742,6 +852,8 @@ private fun LevelEditorScreen(
     var moveWhole by remember { mutableStateOf(false) }
     var name by remember(existing?.id) { mutableStateOf(existing?.name ?: "") }
     var showNameDialog by remember { mutableStateOf(false) }
+    var showPreview by remember { mutableStateOf(false) }
+    var previewDifficulty by remember { mutableStateOf(Difficulty.BEGINNER) }
     var editorSize by remember { mutableStateOf(IntSize.Zero) }
     val snapPixels = with(LocalDensity.current) { 12.dp.toPx() }
     Scaffold(
@@ -758,6 +870,10 @@ private fun LevelEditorScreen(
                             }
                         }) { Icon(Icons.Rounded.Delete, "刪除關卡") }
                     }
+                    IconButton(onClick = { poses = centerEditorPoses(poses, editorSize.takeIf { it.height > 0 }?.let { it.width.toFloat() / it.height } ?: 1f) }) {
+                        Icon(Icons.Rounded.CenterFocusStrong, "自動置中")
+                    }
+                    IconButton(onClick = { showPreview = true }) { Icon(Icons.Rounded.Visibility, "關卡預覽") }
                     TextButton(onClick = { showNameDialog = true }) { Text("儲存") }
                 }
             )
@@ -843,8 +959,8 @@ private fun LevelEditorScreen(
             )
             drawLine(
                 color = guide,
-                start = Offset(0f, size.height / 2f),
-                end = Offset(size.width, size.height / 2f),
+                start = Offset(0f, size.height * TARGET_AREA_BOTTOM / 2f),
+                end = Offset(size.width, size.height * TARGET_AREA_BOTTOM / 2f),
                 strokeWidth = 1.dp.toPx(),
                 pathEffect = guideStroke.pathEffect
             )
@@ -867,6 +983,34 @@ private fun LevelEditorScreen(
                 }) { Text("儲存") }
             },
             dismissButton = { TextButton(onClick = { showNameDialog = false }) { Text("取消") } }
+        )
+    }
+    if (showPreview) {
+        AlertDialog(
+            onDismissRequest = { showPreview = false },
+            title = { Text("關卡預覽") },
+            text = {
+                Column {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Difficulty.entries.forEach { mode ->
+                            SettingChoice(
+                                if (mode == Difficulty.BEGINNER) "初級" else "高級",
+                                previewDifficulty == mode,
+                                { previewDifficulty = mode },
+                                Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    EditorPreviewBoard(
+                        poses,
+                        editorSize,
+                        previewDifficulty,
+                        colorTheme,
+                        Modifier.fillMaxWidth().padding(top = 12.dp).clipToBounds()
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { showPreview = false }) { Text("關閉") } }
         )
     }
 }
@@ -894,3 +1038,45 @@ private fun LauncherTangram(modifier: Modifier = Modifier) {
 }
 
 private fun formatTime(seconds: Long): String = "%02d:%02d".format(seconds / 60, seconds % 60)
+
+private fun shareCompletedLevel(
+    context: Context,
+    level: Level,
+    pieces: List<PlayingPiece>,
+    colorTheme: PieceColorTheme,
+    elapsedSeconds: Long
+) {
+    val bitmap = Bitmap.createBitmap(1080, 900, Bitmap.Config.ARGB_8888)
+    val canvas = AndroidCanvas(bitmap)
+    canvas.drawColor(android.graphics.Color.rgb(242, 232, 213))
+    val ratio = bitmap.width.toFloat() / bitmap.height
+    val completedLevel = Level(0, level.name, pieces.associate { it.spec.kind to it.pose }, level.canvasYScale).forCanvas(ratio)
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+        color = android.graphics.Color.argb(100, 45, 38, 32)
+    }
+    completedLevel.targets.forEach { (kind, pose) ->
+        val vertices = transformedVertices(PlayingPiece(pieceSpecs.first { it.kind == kind }, pose), ratio)
+        val path = AndroidPath().apply {
+            moveTo(vertices.first().x * bitmap.width, vertices.first().y * bitmap.height)
+            vertices.drop(1).forEach { lineTo(it.x * bitmap.width, it.y * bitmap.height) }
+            close()
+        }
+        fill.color = kind.colorFor(colorTheme).toInt()
+        canvas.drawPath(path, fill)
+        canvas.drawPath(path, stroke)
+    }
+    val directory = File(context.cacheDir, "shared").apply { mkdirs() }
+    val image = File(directory, "${level.name}-completed.png")
+    FileOutputStream(image).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", image)
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "image/png"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_TEXT, "${level.name} · 完成時間 ${formatTime(elapsedSeconds)}")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "分享完成圖案"))
+}

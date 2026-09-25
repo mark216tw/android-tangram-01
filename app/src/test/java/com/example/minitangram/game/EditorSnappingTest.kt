@@ -99,4 +99,18 @@ class EditorSnappingTest {
             assertEquals(pose.center.y, result.getValue(kind).center.y, .00001f)
         }
     }
+
+    @Test
+    fun centerEditorPosesAlignsWholeBoundsOnBothAxes() {
+        val poses = mapOf(
+            PieceKind.LARGE_ONE to Pose(Vec2(.2f, .25f)),
+            PieceKind.SQUARE to Pose(Vec2(.35f, .3f))
+        )
+        val centered = centerEditorPoses(poses, 1f)
+        val vertices = centered.map { (kind, pose) ->
+            transformedVertices(PlayingPiece(pieceSpecs.first { it.kind == kind }, pose))
+        }.flatten()
+        assertEquals(.5f, (vertices.minOf { it.x } + vertices.maxOf { it.x }) / 2f, .00001f)
+        assertEquals(TARGET_AREA_BOTTOM / 2f, (vertices.minOf { it.y } + vertices.maxOf { it.y }) / 2f, .00001f)
+    }
 }
