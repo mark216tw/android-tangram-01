@@ -1,40 +1,42 @@
 package com.example.minitangram.game
 
-private fun targets(
-    centers: List<Vec2>,
-    rotations: List<Int>,
-    flippedParallelogram: Boolean = false
-) = PieceKind.entries.mapIndexed { index, kind ->
-    kind to Pose(centers[index], rotations[index], kind == PieceKind.PARALLELOGRAM && flippedParallelogram)
-}.toMap()
+private const val LEVEL_SCALE = .15f
+private const val LEVEL_Y_SCALE = .5f
 
-private fun level(id: Int, name: String, centers: List<Vec2>, rotations: List<Int>, flipped: Boolean = false) =
-    Level(id, name, targets(centers, rotations, flipped))
+private data class ModelPose(val x: Float, val y: Float, val rotation: Int, val flipped: Boolean = false)
 
-// Coordinates are normalized to the board. Each arrangement follows the supplied
-// reference sheet while retaining the standard seven-piece tangram geometry.
+private fun p(x: Double, y: Double, rotation: Int, flipped: Boolean = false) =
+    ModelPose(x.toFloat(), y.toFloat(), rotation, flipped)
+
+private fun level(id: Int, name: String, vararg poses: ModelPose): Level {
+    require(poses.size == PieceKind.entries.size)
+    val targets = PieceKind.entries.zip(poses).associate { (kind, pose) ->
+        kind to Pose(Vec2(pose.x * LEVEL_SCALE, pose.y * LEVEL_SCALE * LEVEL_Y_SCALE), pose.rotation, pose.flipped)
+    }
+    return Level(id, name, centerEditorPoses(targets, LEVEL_Y_SCALE), LEVEL_Y_SCALE)
+}
+
+// Strict seven-piece silhouettes authored in isotropic small-triangle units.
+// Piece order is LARGE_ONE, LARGE_TWO, MEDIUM, SMALL_ONE, SMALL_TWO, SQUARE, PARALLELOGRAM.
 val levels = listOf(
-    // Snake: a low zig-zag body with the head raised at the right.
-    level(1, "蛇", listOf(Vec2(.30f,.48f),Vec2(.43f,.48f),Vec2(.57f,.40f),Vec2(.69f,.29f),Vec2(.76f,.39f),Vec2(.51f,.55f),Vec2(.28f,.34f)), listOf(0,180,315,45,225,45,315)),
-    // Lion: the large triangles form the mane, with the small pieces as ears and muzzle.
-    level(2, "獅子", listOf(Vec2(.39f,.45f),Vec2(.56f,.45f),Vec2(.69f,.40f),Vec2(.29f,.28f),Vec2(.68f,.25f),Vec2(.48f,.29f),Vec2(.30f,.53f)), listOf(45,225,0,225,45,45,90)),
-    // Eagle: two extended wings, a pointed body and a raised head.
-    level(3, "老鷹", listOf(Vec2(.34f,.40f),Vec2(.66f,.40f),Vec2(.50f,.51f),Vec2(.23f,.29f),Vec2(.77f,.29f),Vec2(.50f,.65f),Vec2(.50f,.27f)), listOf(45,315,45,225,315,45,0)),
-    level(4, "蝴蝶", listOf(Vec2(.36f,.39f),Vec2(.64f,.39f),Vec2(.50f,.50f),Vec2(.28f,.28f),Vec2(.72f,.28f),Vec2(.50f,.29f),Vec2(.50f,.68f)), listOf(45,315,0,315,45,45,90)),
-    level(5, "小雞", listOf(Vec2(.47f,.40f),Vec2(.58f,.45f),Vec2(.38f,.30f),Vec2(.30f,.23f),Vec2(.67f,.31f),Vec2(.52f,.59f),Vec2(.39f,.53f)), listOf(45,225,315,225,45,45,90)),
-    level(6, "鴨子", listOf(Vec2(.42f,.43f),Vec2(.58f,.43f),Vec2(.72f,.36f),Vec2(.31f,.26f),Vec2(.75f,.23f),Vec2(.48f,.59f),Vec2(.35f,.55f)), listOf(45,225,0,225,45,45,315)),
-    level(7, "駱駝", listOf(Vec2(.39f,.43f),Vec2(.58f,.43f),Vec2(.73f,.39f),Vec2(.31f,.22f),Vec2(.68f,.22f),Vec2(.48f,.58f),Vec2(.28f,.48f)), listOf(45,225,0,225,45,45,90)),
-    level(8, "蘋果", listOf(Vec2(.43f,.48f),Vec2(.57f,.48f),Vec2(.50f,.64f),Vec2(.34f,.35f),Vec2(.66f,.35f),Vec2(.50f,.29f),Vec2(.50f,.19f)), listOf(45,225,0,315,45,45,0)),
-    level(9, "長頸鹿", listOf(Vec2(.42f,.48f),Vec2(.58f,.48f),Vec2(.70f,.42f),Vec2(.35f,.24f),Vec2(.73f,.25f),Vec2(.48f,.60f),Vec2(.27f,.40f)), listOf(45,225,0,225,45,45,90)),
-    level(10, "恐龍", listOf(Vec2(.42f,.43f),Vec2(.58f,.43f),Vec2(.72f,.35f),Vec2(.34f,.27f),Vec2(.70f,.23f),Vec2(.50f,.60f),Vec2(.27f,.51f)), listOf(45,225,315,225,45,45,90), true),
-    level(11, "狐狸", listOf(Vec2(.44f,.43f),Vec2(.57f,.44f),Vec2(.37f,.28f),Vec2(.46f,.20f),Vec2(.62f,.22f),Vec2(.66f,.57f),Vec2(.29f,.49f)), listOf(45,225,315,225,315,45,90), true),
-    level(12, "蝙蝠", listOf(Vec2(.34f,.40f),Vec2(.66f,.40f),Vec2(.50f,.49f),Vec2(.23f,.28f),Vec2(.77f,.28f),Vec2(.50f,.63f),Vec2(.50f,.28f)), listOf(315,45,0,225,315,45,90)),
-    level(13, "愛心", listOf(Vec2(.39f,.39f),Vec2(.61f,.39f),Vec2(.50f,.55f),Vec2(.29f,.27f),Vec2(.71f,.27f),Vec2(.39f,.63f),Vec2(.61f,.63f)), listOf(45,225,0,315,45,315,45)),
-    level(14, "橋", listOf(Vec2(.32f,.49f),Vec2(.68f,.49f),Vec2(.50f,.38f),Vec2(.27f,.26f),Vec2(.73f,.26f),Vec2(.50f,.58f),Vec2(.50f,.25f)), listOf(0,180,0,225,315,45,90)),
-    level(15, "蠟燭", listOf(Vec2(.50f,.53f),Vec2(.50f,.68f),Vec2(.50f,.39f),Vec2(.50f,.23f),Vec2(.50f,.14f),Vec2(.39f,.53f),Vec2(.61f,.53f)), listOf(45,225,0,45,315,0,0)),
-    level(16, "鑰匙", listOf(Vec2(.38f,.50f),Vec2(.54f,.50f),Vec2(.68f,.50f),Vec2(.72f,.31f),Vec2(.72f,.67f),Vec2(.30f,.32f),Vec2(.30f,.68f)), listOf(0,0,0,45,225,45,315)),
-    level(17, "兔子", listOf(Vec2(.45f,.43f),Vec2(.58f,.43f),Vec2(.34f,.34f),Vec2(.31f,.20f),Vec2(.43f,.20f),Vec2(.64f,.54f),Vec2(.73f,.40f)), listOf(45,225,315,225,315,45,0), true),
-    level(18, "袋鼠", listOf(Vec2(.42f,.44f),Vec2(.57f,.44f),Vec2(.70f,.42f),Vec2(.35f,.27f),Vec2(.73f,.25f),Vec2(.49f,.60f),Vec2(.28f,.51f)), listOf(45,225,0,225,45,45,90)),
-    level(19, "蝦子", listOf(Vec2(.34f,.47f),Vec2(.48f,.36f),Vec2(.61f,.31f),Vec2(.72f,.38f),Vec2(.69f,.55f),Vec2(.49f,.56f),Vec2(.29f,.59f)), listOf(45,135,225,315,45,0,315)),
-    level(20, "天鵝", listOf(Vec2(.43f,.48f),Vec2(.57f,.48f),Vec2(.57f,.31f),Vec2(.64f,.18f),Vec2(.73f,.18f),Vec2(.38f,.61f),Vec2(.62f,.39f)), listOf(45,225,315,45,315,45,90))
+    level(1, "蛇", p(3.103256,4.845821,0),p(3.815864,3.707750,45),p(3.571683,2.031298,0),p(3.149047,7.173440,270),p(3.976111,2.431608,180),p(3.169449,6.153401,45),p(1.936589,5.181119,225)),
+    level(2, "獅子", p(2.108642,4.665156,45),p(3.063587,4.010625,90),p(4.201658,5.086523,0),p(.855533,5.469894,0),p(1.128349,4.231235,135),p(4.235850,4.115119,0),p(5.644467,3.930106,135,true)),
+    level(3, "老鷹", p(4.719655,5.153425,90),p(3.163442,5.241701,135),p(4.383234,4.153426,45),p(1.987452,2.646455,225),p(2.456335,3.120380,315),p(3.399139,3.763747,45),p(2.334061,4.176618,270,true)),
+    level(4, "蝴蝶", p(5.220523,4.532475,135),p(1.446143,4.534192,315),p(4.277500,4.061132,180),p(4.042012,4.768239,225),p(2.862306,4.537416,135),p(3.331761,3.828360,45),p(2.271102,4.181913,270,true)),
+    level(5, "小雞", p(4.053911,4.512273,225),p(2.572895,4.640732,270),p(1.669946,3.072277,0),p(2.574266,5.974066,180),p(3.574266,5.809217,90),p(2.622845,3.297890,45),p(3.682635,3.652313,180,true)),
+    level(6, "鴨子", p(2.626162,5.090588,225),p(4.040504,5.561864,45),p(2.237891,2.285850,45),p(3.804467,6.740376,315),p(4.706836,6.496732,90),p(1.740883,4.119183,0),p(2.241947,3.119184,315)),
+    level(7, "駱駝", p(4.656832,5.052952,90),p(2.005060,5.067847,0),p(3.338451,5.067904,45),p(3.987983,5.734571,90),p(1.676501,4.067846,270),p(.843167,3.897412,0),p(5.823499,3.665429,315,true)),
+    level(8, "蘋果", p(2.626831,4.062252,45),p(2.625622,5.005983,225),p(3.568251,3.589278,90),p(3.333795,5.712025,45),p(4.983853,4.533656,135),p(4.041045,5.240763,45),p(4.393210,4.178714,270,true)),
+    level(9, "長頸鹿", p(3.092570,6.119849,135),p(4.509459,6.124240,135),p(2.157208,2.471022,180),p(2.864315,2.584022,135),p(3.802352,5.415417,315),p(3.334065,4.705192,45),p(2.981264,3.643780,90)),
+    level(10, "恐龍", p(3.370738,3.335047,90),p(3.804738,5.378523,135),p(2.861929,5.616837,180),p(4.205653,6.920417,90),p(4.000000,7.731619,90),p(2.833333,6.917753,90),p(3.527537,1.668380,45)),
+    level(11, "狐狸", p(3.232540,3.799845,180),p(4.378753,5.266821,90),p(2.399144,3.299908,225),p(3.245887,5.133955,270),p(5.047006,4.364452,45),p(2.412554,4.966512,0),p(1.912554,5.967289,315)),
+    level(12, "蝙蝠", p(4.662188,4.693790,90),p(2.004478,4.702745,0),p(3.323677,3.693789,45),p(.671144,5.372877,0),p(1.004478,4.701575,180),p(3.310880,4.770117,45),p(5.828855,5.024633,225)),
+    level(13, "愛心", p(4.149694,5.353358,135),p(2.516972,5.360797,315),p(2.219331,4.244225,0),p(2.710619,3.537118,45),p(4.674521,4.463972,315),p(4.190788,3.744537,315),p(2.936562,2.791656,225,true)),
+    level(14, "橋", p(5.335229,5.597032,315),p(2.272983,2.527463,225),p(3.922279,3.235190,90),p(3.687834,2.526826,45),p(5.336493,4.181488,135),p(3.660078,4.151500,45),p(4.747237,3.824626,270,true)),
+    level(15, "蠟燭", p(3.564753,5.022658,315),p(3.091933,6.438288,135),p(3.333333,7.817401,45),p(3.799219,7.145216,315),p(2.856231,4.316968,135),p(3.330715,3.606782,45),p(3.114738,1.976591,90,true)),
+    level(16, "鑰匙", p(1.892439,4.533333,135),p(.949630,4.533333,315),p(4.306784,4.196775,0),p(3.168713,5.069177,0),p(4.302823,5.143546,315),p(3.335248,4.235844,0),p(5.599185,4.107218,180,true)),
+    level(17, "兔子", p(1.951398,5.443258,45),p(3.366217,4.972458,225),p(5.462815,3.152004,135),p(1.288774,6.150365,225),p(3.030171,6.247996,90),p(5.135338,4.853253,45),p(4.129481,3.409630,45,true)),
+    level(18, "袋鼠", p(4.428618,4.810617,135),p(4.729278,6.119433,180),p(3.623880,4.423982,315),p(1.507021,2.992322,135),p(2.454479,2.987673,315),p(1.977828,3.700026,45),p(2.957214,3.927747,315)),
+    level(19, "蝦子", p(3.020845,4.303256,90),p(4.158917,5.015864,135),p(5.835368,4.771683,90),p(.693227,4.349047,0),p(5.435059,5.176111,270),p(1.713265,4.369449,135),p(2.685548,3.136589,315)),
+    level(20, "天鵝", p(2.606622,4.043162,90),p(2.304686,5.350702,135),p(2.330899,6.933965,45),p(4.686271,2.978953,45),p(3.508991,3.215886,135),p(3.980238,2.506475,45),p(3.631155,4.275315,90))
 )

@@ -147,6 +147,25 @@ fun containsPoint(vertices: List<Vec2>, point: Vec2): Boolean {
     return inside
 }
 
+fun containsPointWithTolerance(vertices: List<Vec2>, point: Vec2, tolerance: Float): Boolean {
+    if (containsPoint(vertices, point)) return true
+    return vertices.indices.any { index ->
+        distanceToSegment(point, vertices[index], vertices[(index + 1) % vertices.size]) <= tolerance
+    }
+}
+
+private fun distanceToSegment(point: Vec2, start: Vec2, end: Vec2): Float {
+    val dx = end.x - start.x
+    val dy = end.y - start.y
+    val lengthSquared = dx * dx + dy * dy
+    if (lengthSquared == 0f) {
+        return kotlin.math.hypot(point.x - start.x, point.y - start.y)
+    }
+    val projection = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared
+    val t = projection.coerceIn(0f, 1f)
+    return kotlin.math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy))
+}
+
 fun angleDistance(a: Int, b: Int): Int {
     val difference = abs(((a - b) % 360 + 360) % 360)
     return minOf(difference, 360 - difference)

@@ -46,7 +46,13 @@ class GameViewModel(val level: Level, initialYScale: Float = 1f) : ViewModel() {
     fun select(point: Vec2, normalizedYScale: Float = 1f) {
         this.normalizedYScale = normalizedYScale.coerceAtLeast(.01f)
         val kind = _state.value.pieces.asReversed()
-            .firstOrNull { !it.snapped && containsPoint(transformedVertices(it, normalizedYScale), point) }?.spec?.kind
+            .firstOrNull {
+                if (it.snapped) return@firstOrNull false
+                val vertices = transformedVertices(it, normalizedYScale)
+                containsPoint(vertices, point) ||
+                    (it.spec.kind == PieceKind.SMALL_ONE || it.spec.kind == PieceKind.SMALL_TWO) &&
+                    containsPointWithTolerance(vertices, point, .022f)
+            }?.spec?.kind
         _state.update { current ->
             if (kind == null) current.copy(selected = null)
             else current.copy(

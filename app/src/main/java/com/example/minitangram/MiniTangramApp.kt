@@ -562,45 +562,61 @@ private fun GameScreen(
                 title = { Column { Text("${level.id.toString().padStart(2, '0')} · ${level.name}"); Text(formatTime(state.elapsedSeconds), fontSize = 12.sp, color = MaterialTheme.colorScheme.outline) } },
                 navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Rounded.Close, "離開關卡") } },
                 actions = {
-                    IconButton(onClick = game::hint) { Icon(Icons.Rounded.Lightbulb, "提示") }
+                    if (!state.completed) IconButton(onClick = game::hint) { Icon(Icons.Rounded.Lightbulb, "提示") }
                     IconButton(onClick = game::reset) { Icon(Icons.Rounded.Refresh, "重置") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
         bottomBar = {
-            Column {
-                if (state.completed) {
-                    CompletionPanel(
-                        level = level,
-                        elapsedSeconds = state.elapsedSeconds,
-                        bestTime = bestTime,
-                        hintsUsed = state.hintsUsed,
-                        isCustom = isCustom,
-                        onShare = { shareCompletedLevel(context, displayLevel, state.pieces, colorTheme, state.elapsedSeconds) },
-                        onNext = {
-                            if (!isCustom && level.id < levels.size) navController.navigate("game/${level.id + 1}") { popUpTo("game/${level.id}") { inclusive = true } }
-                            else navController.popBackStack("levels", inclusive = false)
-                        },
-                        onLevels = { navController.popBackStack() }
-                    )
-                }
-                GameControls(state.selected, game)
-            }
+            if (!state.completed) GameControls(state.selected, game)
         }
     ) { padding ->
-        TangramBoard(
-            displayLevel,
-            state.pieces,
-            state.selected,
-            state.hint,
-            state.hintTarget,
-            game,
-            difficulty,
-            colorTheme,
-            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).padding(12.dp)
-                .onSizeChanged { if (boardSize == IntSize.Zero) boardSize = it }
-        )
+        val contentModifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).padding(12.dp)
+        if (state.completed && boardSize != IntSize.Zero) {
+            val density = LocalDensity.current
+            Column(
+                contentModifier.navigationBarsPadding().padding(bottom = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CompletedTangramBoard(
+                    pieces = state.pieces,
+                    virtualBoardSize = boardSize,
+                    colorTheme = colorTheme,
+                    modifier = Modifier.fillMaxWidth().height(with(density) { (boardSize.height * TARGET_AREA_BOTTOM).toDp() })
+                )
+                Spacer(Modifier.height(12.dp))
+                CompletionPanel(
+                    level = level,
+                    elapsedSeconds = state.elapsedSeconds,
+                    bestTime = bestTime,
+                    hintsUsed = state.hintsUsed,
+                    isCustom = isCustom,
+                    onRetry = game::reset,
+                    onShare = { shareCompletedLevel(context, displayLevel, state.pieces, colorTheme, state.elapsedSeconds) },
+                    onNext = {
+                        if (!isCustom && level.id < levels.size) navController.navigate("game/${level.id + 1}") { popUpTo("game/${level.id}") { inclusive = true } }
+                        else navController.popBackStack("levels", inclusive = false)
+                    },
+                    onLevels = { navController.popBackStack() },
+                    modifier = Modifier.fillMaxWidth().weight(1f)
+                )
+            }
+        } else {
+            Box(contentModifier.onSizeChanged { if (boardSize == IntSize.Zero) boardSize = it }) {
+                TangramBoard(
+                    displayLevel,
+                    state.pieces,
+                    state.selected,
+                    state.hint,
+                    state.hintTarget,
+                    game,
+                    difficulty,
+                    colorTheme,
+                    Modifier.fillMaxSize()
+                )
+            }
+        }
     }
 
 }
@@ -612,26 +628,80 @@ private fun CompletionPanel(
     bestTime: Long?,
     hintsUsed: Int,
     isCustom: Boolean,
+    onRetry: () -> Unit,
     onShare: () -> Unit,
     onNext: () -> Unit,
-    onLevels: () -> Unit
+    onLevels: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        modifier
+            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = .25f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        Text("巧成 · ${level.name}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text(level.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         Text("完成時間 ${formatTime(elapsedSeconds)}", modifier = Modifier.padding(top = 2.dp))
         Text(
-            if (bestTime == null || elapsedSeconds <= bestTime) "新的最佳紀錄" else "最佳紀錄 ${formatTime(bestTime)}",
+            when {
+                bestTime == null -> "新的最佳紀錄"
+                elapsedSeconds < bestTime -> "比前次紀錄快了 ${bestTime - elapsedSeconds} 秒"
+                elapsedSeconds > bestTime -> "比最佳紀錄慢了 ${elapsedSeconds - bestTime} 秒"
+                else -> "與最佳紀錄相同"
+            },
             color = MaterialTheme.colorScheme.primary,
             fontSize = 13.sp
         )
         if (hintsUsed > 0) Text("使用提示 $hintsUsed 次", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-            FilledTonalButton(onClick = onShare) { Icon(Icons.Rounded.Share, null); Spacer(Modifier.width(4.dp)); Text("分享圖案") }
-            Button(onClick = onNext) { Text(if (!isCustom && level.id < levels.size) "下一關" else "返回關卡") }
-            TextButton(onClick = onLevels) { Text("關卡選擇") }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(onClick = onRetry) { Text("再次挑戰") }
+            if (!isCustom) {
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = onNext) { Text("前進下一關") }
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onLevels) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回關卡選擇") }
+            IconButton(onClick = onShare) { Icon(Icons.Rounded.Share, "分享圖案") }
+        }
+    }
+}
+
+@Composable
+private fun CompletedTangramBoard(
+    pieces: List<PlayingPiece>,
+    virtualBoardSize: IntSize,
+    colorTheme: PieceColorTheme,
+    modifier: Modifier = Modifier
+) {
+    val surface = MaterialTheme.colorScheme.surface
+    val outline = MaterialTheme.colorScheme.outline
+    Canvas(
+        modifier
+            .background(surface, RoundedCornerShape(8.dp))
+            .border(1.dp, outline.copy(alpha = .25f), RoundedCornerShape(8.dp))
+    ) {
+        val virtualHeight = virtualBoardSize.height.toFloat()
+        val normalizedYScale = size.width / virtualHeight
+        pieces.forEach { piece ->
+            drawPieceAtVirtualHeight(
+                piece = piece,
+                virtualHeight = virtualHeight,
+                normalizedYScale = normalizedYScale,
+                fill = Color(piece.spec.kind.colorFor(colorTheme)).copy(alpha = .82f),
+                stroke = Color.Black.copy(alpha = .35f),
+                strokeWidth = 1.dp.toPx()
+            )
         }
     }
 }
@@ -741,6 +811,24 @@ private fun DrawScope.drawPiece(piece: PlayingPiece, fill: Color, stroke: Color,
     val path = Path().apply {
         moveTo(vertices.first().x * size.width, vertices.first().y * size.height)
         vertices.drop(1).forEach { lineTo(it.x * size.width, it.y * size.height) }
+        close()
+    }
+    drawPath(path, fill)
+    drawPath(path, stroke, style = Stroke(strokeWidth))
+}
+
+private fun DrawScope.drawPieceAtVirtualHeight(
+    piece: PlayingPiece,
+    virtualHeight: Float,
+    normalizedYScale: Float,
+    fill: Color,
+    stroke: Color,
+    strokeWidth: Float
+) {
+    val vertices = transformedVertices(piece, normalizedYScale)
+    val path = Path().apply {
+        moveTo(vertices.first().x * size.width, vertices.first().y * virtualHeight)
+        vertices.drop(1).forEach { lineTo(it.x * size.width, it.y * virtualHeight) }
         close()
     }
     drawPath(path, fill)
@@ -1055,22 +1143,36 @@ private fun shareCompletedLevel(
     colorTheme: PieceColorTheme,
     elapsedSeconds: Long
 ) {
-    val bitmap = Bitmap.createBitmap(1080, 900, Bitmap.Config.ARGB_8888)
+    val bitmap = Bitmap.createBitmap(1080, 1080, Bitmap.Config.ARGB_8888)
     val canvas = AndroidCanvas(bitmap)
     canvas.drawColor(android.graphics.Color.rgb(242, 232, 213))
-    val ratio = bitmap.width.toFloat() / bitmap.height
-    val completedLevel = Level(0, level.name, pieces.associate { it.spec.kind to it.pose }, level.canvasYScale).forCanvas(ratio)
+    val sourceScale = (level.canvasYScale ?: 1f).coerceAtLeast(.01f)
+    val pieceVertices = pieces.map { piece ->
+        piece.spec.kind to transformedVertices(piece, sourceScale).map { vertex ->
+            Vec2(vertex.x, vertex.y / sourceScale)
+        }
+    }
+    val vertices = pieceVertices.flatMap { it.second }
+    val minX = vertices.minOf { it.x }
+    val maxX = vertices.maxOf { it.x }
+    val minY = vertices.minOf { it.y }
+    val maxY = vertices.maxOf { it.y }
+    val boundsWidth = (maxX - minX).coerceAtLeast(.0001f)
+    val boundsHeight = (maxY - minY).coerceAtLeast(.0001f)
+    val margin = 72f
+    val scale = minOf((bitmap.width - margin * 2f) / boundsWidth, (bitmap.height - margin * 2f) / boundsHeight)
+    val offsetX = (bitmap.width - boundsWidth * scale) / 2f - minX * scale
+    val offsetY = (bitmap.height - boundsHeight * scale) / 2f - minY * scale
     val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 4f
         color = android.graphics.Color.argb(100, 45, 38, 32)
     }
-    completedLevel.targets.forEach { (kind, pose) ->
-        val vertices = transformedVertices(PlayingPiece(pieceSpecs.first { it.kind == kind }, pose), ratio)
+    pieceVertices.forEach { (kind, polygon) ->
         val path = AndroidPath().apply {
-            moveTo(vertices.first().x * bitmap.width, vertices.first().y * bitmap.height)
-            vertices.drop(1).forEach { lineTo(it.x * bitmap.width, it.y * bitmap.height) }
+            moveTo(polygon.first().x * scale + offsetX, polygon.first().y * scale + offsetY)
+            polygon.drop(1).forEach { lineTo(it.x * scale + offsetX, it.y * scale + offsetY) }
             close()
         }
         fill.color = kind.colorFor(colorTheme).toInt()
