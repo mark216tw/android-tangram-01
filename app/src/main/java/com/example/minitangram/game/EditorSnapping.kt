@@ -132,3 +132,44 @@ fun centerEditorPoses(poses: Map<PieceKind, Pose>, normalizedYScale: Float): Map
     val dy = TARGET_AREA_BOTTOM / 2f - (vertices.minOf { it.y } + vertices.maxOf { it.y }) / 2f
     return poses.mapValues { (_, pose) -> pose.copy(center = Vec2(pose.center.x + dx, pose.center.y + dy)) }
 }
+
+fun initialPiecePoses(normalizedYScale: Float): Map<PieceKind, Pose> {
+    val scale = normalizedYScale.coerceAtLeast(.01f)
+    val centers = mutableMapOf(
+        PieceKind.LARGE_ONE to Vec2(.16f, .76f),
+        PieceKind.LARGE_TWO to Vec2(.48f, .76f),
+        PieceKind.MEDIUM to Vec2(.78f, .76f),
+        PieceKind.SMALL_ONE to Vec2(.13f, .92f),
+        PieceKind.SMALL_TWO to Vec2(.34f, .92f),
+        PieceKind.SQUARE to Vec2(.58f, .92f),
+        PieceKind.PARALLELOGRAM to Vec2(.82f, .92f)
+    )
+    fun horizontalBounds(kind: PieceKind): Pair<Float, Float> {
+        val vertices = transformedVertices(
+            PlayingPiece(pieceSpecs.first { it.kind == kind }, Pose(centers.getValue(kind))),
+            scale
+        )
+        return vertices.minOf { it.x } to vertices.maxOf { it.x }
+    }
+    val smallRight = horizontalBounds(PieceKind.SMALL_TWO).second
+    val parallelogramLeft = horizontalBounds(PieceKind.PARALLELOGRAM).first
+    centers[PieceKind.SQUARE] = centers.getValue(PieceKind.SQUARE).copy(x = (smallRight + parallelogramLeft) / 2f)
+    fun topOffset(kind: PieceKind): Float = transformedVertices(
+        PlayingPiece(pieceSpecs.first { it.kind == kind }, Pose(Vec2(0f, 0f))),
+        scale
+    ).minOf { it.y }
+    fun pieceHeight(kind: PieceKind): Float {
+        val vertices = transformedVertices(PlayingPiece(pieceSpecs.first { it.kind == kind }, Pose(Vec2(0f, 0f))), scale)
+        return vertices.maxOf { it.y } - vertices.minOf { it.y }
+    }
+    val topRowY = centers.getValue(PieceKind.LARGE_ONE).y + topOffset(PieceKind.LARGE_ONE)
+    val bottomKinds = setOf(PieceKind.SMALL_ONE, PieceKind.SMALL_TWO, PieceKind.SQUARE, PieceKind.PARALLELOGRAM)
+    val bottomRowY = minOf(
+        centers.getValue(PieceKind.SMALL_ONE).y + topOffset(PieceKind.SMALL_ONE),
+        .97f - bottomKinds.maxOf(::pieceHeight)
+    )
+    return centers.mapValues { (kind, center) ->
+        val rowY = if (kind in bottomKinds) bottomRowY else topRowY
+        Pose(Vec2(center.x, rowY - topOffset(kind)))
+    }
+}

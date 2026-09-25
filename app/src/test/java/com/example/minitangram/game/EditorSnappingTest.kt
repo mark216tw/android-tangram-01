@@ -113,4 +113,51 @@ class EditorSnappingTest {
         assertEquals(.5f, (vertices.minOf { it.x } + vertices.maxOf { it.x }) / 2f, .00001f)
         assertEquals(TARGET_AREA_BOTTOM / 2f, (vertices.minOf { it.y } + vertices.maxOf { it.y }) / 2f, .00001f)
     }
+
+    @Test
+    fun initialPieceRowsAlignTheirTopEdges() {
+        for (scale in listOf(.45f, .7f, 1f)) {
+            val poses = initialPiecePoses(scale)
+            fun top(kind: PieceKind) = transformedVertices(
+                PlayingPiece(pieceSpecs.first { it.kind == kind }, poses.getValue(kind)),
+                scale
+            ).minOf { it.y }
+
+            val topRow = listOf(PieceKind.LARGE_ONE, PieceKind.LARGE_TWO, PieceKind.MEDIUM).map(::top)
+            val bottomRow = listOf(PieceKind.SMALL_ONE, PieceKind.SMALL_TWO, PieceKind.SQUARE, PieceKind.PARALLELOGRAM).map(::top)
+            topRow.forEach { assertEquals(topRow.first(), it, .00001f) }
+            bottomRow.forEach { assertEquals(bottomRow.first(), it, .00001f) }
+        }
+    }
+
+    @Test
+    fun initialSquareHasEqualVisualSpacingBetweenItsNeighbors() {
+        val scale = .5f
+        val poses = initialPiecePoses(scale)
+        fun bounds(kind: PieceKind): Pair<Float, Float> {
+            val vertices = transformedVertices(
+                PlayingPiece(pieceSpecs.first { it.kind == kind }, poses.getValue(kind)),
+                scale
+            )
+            return vertices.minOf { it.x } to vertices.maxOf { it.x }
+        }
+        val small = bounds(PieceKind.SMALL_TWO)
+        val square = bounds(PieceKind.SQUARE)
+        val parallelogram = bounds(PieceKind.PARALLELOGRAM)
+
+        assertEquals(square.first - small.second, parallelogram.first - square.second, .00001f)
+    }
+
+    @Test
+    fun centeredBuiltInLevelsUseTargetAreaCenter() {
+        val scale = .5f
+        levels.forEach { level ->
+            val centered = centerEditorPoses(level.targets, scale)
+            val vertices = centered.flatMap { (kind, pose) ->
+                transformedVertices(PlayingPiece(pieceSpecs.first { it.kind == kind }, pose), scale)
+            }
+            assertEquals(.5f, (vertices.minOf { it.x } + vertices.maxOf { it.x }) / 2f, .00001f)
+            assertEquals(TARGET_AREA_BOTTOM / 2f, (vertices.minOf { it.y } + vertices.maxOf { it.y }) / 2f, .00001f)
+        }
+    }
 }

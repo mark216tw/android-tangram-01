@@ -22,12 +22,8 @@ data class GameUiState(
     val snapCount: Int = 0
 )
 
-class GameViewModel(val level: Level) : ViewModel() {
-    private var normalizedYScale = 1f
-    private val initialCenters = listOf(
-        Vec2(.16f, .76f), Vec2(.48f, .76f), Vec2(.78f, .76f), Vec2(.13f, .92f),
-        Vec2(.34f, .92f), Vec2(.58f, .91f), Vec2(.82f, .91f)
-    )
+class GameViewModel(val level: Level, initialYScale: Float = 1f) : ViewModel() {
+    private var normalizedYScale = initialYScale.coerceAtLeast(.01f)
     private val _state = MutableStateFlow(newGame())
     val state: StateFlow<GameUiState> = _state.asStateFlow()
 
@@ -40,9 +36,12 @@ class GameViewModel(val level: Level) : ViewModel() {
         }
     }
 
-    private fun newGame() = GameUiState(pieceSpecs.mapIndexed { index, spec ->
-        PlayingPiece(spec, Pose(initialCenters[index]))
-    })
+    private fun newGame(): GameUiState {
+        val initialPoses = initialPiecePoses(normalizedYScale)
+        return GameUiState(pieceSpecs.map { spec ->
+            PlayingPiece(spec, initialPoses.getValue(spec.kind))
+        })
+    }
 
     fun select(point: Vec2, normalizedYScale: Float = 1f) {
         this.normalizedYScale = normalizedYScale.coerceAtLeast(.01f)

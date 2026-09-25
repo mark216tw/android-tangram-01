@@ -25,7 +25,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import com.example.minitangram.game.forCanvas
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -143,6 +142,7 @@ import kotlinx.coroutines.launch
 import com.example.minitangram.game.snapEditorPose
 import com.example.minitangram.game.tidyEditorPoses
 import com.example.minitangram.game.centerEditorPoses
+import com.example.minitangram.game.initialPiecePoses
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
@@ -386,7 +386,11 @@ private fun LevelSelectScreen(
                     modifier = Modifier.height(132.dp).clickable(enabled = unlocked) { navController.navigate("game/${level.id}") },
                     shape = RoundedCornerShape(6.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (unlocked) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
+                        containerColor = when {
+                            level.id < 0 -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f)
+                            unlocked -> MaterialTheme.colorScheme.surface
+                            else -> MaterialTheme.colorScheme.surfaceVariant
+                        }
                     )
                 ) {
                     Box(Modifier.fillMaxSize()) {
@@ -528,14 +532,16 @@ private fun GameScreen(
 ) {
     val context = LocalContext.current
     var boardSize by remember { mutableStateOf(IntSize.Zero) }
-    val displayLevel = if (boardSize.height > 0) level.forCanvas(boardSize.width.toFloat() / boardSize.height) else level
-    val factory = remember(displayLevel) {
+    val boardYScale = if (boardSize.height > 0) boardSize.width.toFloat() / boardSize.height else 1f
+    val canvasLevel = if (boardSize.height > 0) level.forCanvas(boardYScale) else level
+    val displayLevel = if (level.id > 0) canvasLevel.copy(targets = centerEditorPoses(canvasLevel.targets, boardYScale)) else canvasLevel
+    val factory = remember(displayLevel, boardYScale) {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T = GameViewModel(displayLevel) as T
+            override fun <T : ViewModel> create(modelClass: Class<T>): T = GameViewModel(displayLevel, boardYScale) as T
         }
     }
-    val game: GameViewModel = viewModel(key = "game-${level.id}-${displayLevel.canvasYScale}", factory = factory)
+    val game: GameViewModel = viewModel(key = "game-${level.id}-${boardSize.width}-${boardSize.height}", factory = factory)
     val state by game.state.collectAsStateWithLifecycle()
     val toneGenerator = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 70) }
     DisposableEffect(toneGenerator) {
@@ -593,7 +599,7 @@ private fun GameScreen(
             difficulty,
             colorTheme,
             Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).padding(12.dp)
-                .onSizeChanged { boardSize = it }
+                .onSizeChanged { if (boardSize == IntSize.Zero) boardSize = it }
         )
     }
 
@@ -779,12 +785,13 @@ private fun EditorPreviewBoard(
     poses: Map<PieceKind, Pose>,
     sourceSize: IntSize,
     difficulty: Difficulty,
-    colorTheme: PieceColorTheme,
     modifier: Modifier = Modifier
 ) {
-    val sourceScale = if (sourceSize.height > 0) sourceSize.width.toFloat() / sourceSize.height else 1f
+    val sourceScale = (if (sourceSize.height > 0) sourceSize.width.toFloat() / sourceSize.height else 1f).coerceAtLeast(.01f)
     val sourcePieces = poses.map { (kind, pose) -> PlayingPiece(pieceSpecs.first { it.kind == kind }, pose) }
-    val sourceVertices = sourcePieces.map { it to transformedVertices(it, sourceScale) }
+    val sourceVertices = sourcePieces.map { piece ->
+        piece to transformedVertices(piece, sourceScale).map { vertex -> Vec2(vertex.x, vertex.y / sourceScale) }
+    }
     val vertices = sourceVertices.flatMap { it.second }
     val minX = vertices.minOfOrNull { it.x } ?: 0f
     val maxX = vertices.maxOfOrNull { it.x } ?: 1f
@@ -792,27 +799,27 @@ private fun EditorPreviewBoard(
     val maxY = vertices.maxOfOrNull { it.y } ?: 1f
     val boundsWidth = (maxX - minX).coerceAtLeast(.0001f)
     val boundsHeight = (maxY - minY).coerceAtLeast(.0001f)
-    val margin = .05f
-    val previewAspectRatio = boundsWidth / boundsHeight
-    fun mapVertex(vertex: Vec2) = Vec2(
-        margin + (vertex.x - minX) / boundsWidth * (1f - margin * 2f),
-        margin + (vertex.y - minY) / boundsHeight * (1f - margin * 2f)
-    )
-    val mappedPieces = sourceVertices.map { (piece, pieceVertices) -> piece to pieceVertices.map(::mapVertex) }
     val surface = MaterialTheme.colorScheme.surface
     val outline = MaterialTheme.colorScheme.outline
     val onSurface = MaterialTheme.colorScheme.onSurface
     val dark = surface.luminance() < .5f
-    Canvas(modifier.aspectRatio(previewAspectRatio).background(surface, RoundedCornerShape(8.dp)).border(1.dp, outline.copy(alpha = .25f), RoundedCornerShape(8.dp))) {
+    Canvas(modifier.background(surface, RoundedCornerShape(8.dp)).border(1.dp, outline.copy(alpha = .25f), RoundedCornerShape(8.dp))) {
+        val margin = .05f
+        val scale = minOf(size.width * (1f - margin * 2f) / boundsWidth, size.height * (1f - margin * 2f) / boundsHeight)
+        val offsetX = (size.width - boundsWidth * scale) / 2f - minX * scale
+        val offsetY = (size.height - boundsHeight * scale) / 2f - minY * scale
+        val mappedPieces = sourceVertices.map { (piece, pieceVertices) ->
+            piece to pieceVertices.map { vertex -> Offset(vertex.x * scale + offsetX, vertex.y * scale + offsetY) }
+        }
         if (difficulty == Difficulty.BEGINNER) {
             mappedPieces.forEach { (_, pieceVertices) ->
-                drawPreviewPolygon(pieceVertices, size.width, size.height, onSurface.copy(alpha = if (dark) .18f else .08f), onSurface.copy(alpha = if (dark) .78f else .48f), 2.dp.toPx())
+                drawPreviewPolygon(pieceVertices, onSurface.copy(alpha = if (dark) .18f else .08f), onSurface.copy(alpha = if (dark) .78f else .48f), 2.dp.toPx())
             }
         } else {
             val paths = mappedPieces.map { (_, pieceVertices) ->
                 Path().apply {
-                    moveTo(pieceVertices.first().x * size.width, pieceVertices.first().y * size.height)
-                    pieceVertices.drop(1).forEach { lineTo(it.x * size.width, it.y * size.height) }
+                    moveTo(pieceVertices.first().x, pieceVertices.first().y)
+                    pieceVertices.drop(1).forEach { lineTo(it.x, it.y) }
                     close()
                 }
             }
@@ -823,10 +830,10 @@ private fun EditorPreviewBoard(
     }
 }
 
-private fun DrawScope.drawPreviewPolygon(vertices: List<Vec2>, width: Float, height: Float, fill: Color, stroke: Color, strokeWidth: Float) {
+private fun DrawScope.drawPreviewPolygon(vertices: List<Offset>, fill: Color, stroke: Color, strokeWidth: Float) {
     val path = Path().apply {
-        moveTo(vertices.first().x * width, vertices.first().y * height)
-        vertices.drop(1).forEach { lineTo(it.x * width, it.y * height) }
+        moveTo(vertices.first().x, vertices.first().y)
+        vertices.drop(1).forEach { lineTo(it.x, it.y) }
         close()
     }
     drawPath(path, fill)
@@ -844,9 +851,7 @@ private fun LevelEditorScreen(
 ) {
     val editorDark = MaterialTheme.colorScheme.surface.luminance() < .5f
     val guide = MaterialTheme.colorScheme.primary.copy(alpha = if (editorDark) .42f else .28f)
-    val initial = existing?.targets ?: PieceKind.entries.mapIndexed { index, kind ->
-        kind to Pose(Vec2(.16f + index * .11f, if (index < 3) .72f else .88f))
-    }.toMap()
+    val initial = existing?.targets ?: initialPiecePoses(1f)
     var poses by remember(existing?.id) { mutableStateOf(initial) }
     var selected by remember { mutableStateOf<PieceKind?>(null) }
     var moveWhole by remember { mutableStateOf(false) }
@@ -891,8 +896,13 @@ private fun LevelEditorScreen(
             Modifier.fillMaxSize().padding(padding).padding(12.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
                 .onSizeChanged {
                     if (it.width > 0 && it.height > 0) {
-                        val oldScale = if (editorSize.height > 0) editorSize.width.toFloat() / editorSize.height else existing?.canvasYScale
-                        poses = Level(0, "", poses, oldScale).forCanvas(it.width.toFloat() / it.height).targets
+                        val newScale = it.width.toFloat() / it.height
+                        if (editorSize == IntSize.Zero && existing == null) {
+                            poses = initialPiecePoses(newScale)
+                        } else {
+                            val oldScale = if (editorSize.height > 0) editorSize.width.toFloat() / editorSize.height else existing?.canvasYScale
+                            poses = Level(0, "", poses, oldScale).forCanvas(newScale).targets
+                        }
                     }
                     editorSize = it
                 }
@@ -1005,8 +1015,7 @@ private fun LevelEditorScreen(
                         poses,
                         editorSize,
                         previewDifficulty,
-                        colorTheme,
-                        Modifier.fillMaxWidth().padding(top = 12.dp).clipToBounds()
+                        Modifier.fillMaxWidth().height(260.dp).padding(top = 12.dp).clipToBounds()
                     )
                 }
             },
