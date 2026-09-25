@@ -25,6 +25,7 @@ Gradle Wrapper 已包含於倉庫，不需要另外安裝 Gradle。
 
 ```powershell
 .\gradlew.bat assembleDebug
+.\gradlew.bat assemblePrerelease
 .\gradlew.bat testDebugUnitTest
 .\gradlew.bat lintDebug
 .\gradlew.bat installDebug
@@ -34,6 +35,7 @@ Gradle Wrapper 已包含於倉庫，不需要另外安裝 Gradle。
 
 ```bash
 ./gradlew assembleDebug
+./gradlew assemblePrerelease
 ./gradlew testDebugUnitTest
 ./gradlew lintDebug
 ./gradlew installDebug
@@ -50,8 +52,11 @@ Gradle Wrapper 已包含於倉庫，不需要另外安裝 Gradle。
 | 類型 | 路徑 |
 | --- | --- |
 | Debug APK | `app/build/outputs/apk/debug/app-debug.apk` |
+| Prerelease APK | `app/build/outputs/apk/prerelease/app-prerelease.apk` |
 | 單元測試報告 | `app/build/reports/tests/testDebugUnitTest/index.html` |
 | Lint 報告 | `app/build/reports/lint-results-debug.html` |
+
+`prerelease` Build Type 的版本名稱為 `1.0.0-prerelease`，啟用 R8 程式碼與資源壓縮，並使用 Android Debug 金鑰簽署，適合測試發行，不適合正式上架。
 
 ## 新增關卡
 

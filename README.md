@@ -56,6 +56,22 @@ Debug APK 會產生於：
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
+測試發行版使用 `prerelease` Build Type，版本為 `1.0.0-prerelease`，啟用 R8 壓縮並使用 Debug 金鑰簽署：
+
+```bash
+# Windows
+.\gradlew.bat assemblePrerelease
+
+# macOS / Linux
+./gradlew assemblePrerelease
+```
+
+APK 會產生於：
+
+```text
+app/build/outputs/apk/prerelease/app-prerelease.apk
+```
+
 ## 品質檢查
 
 ```bash
