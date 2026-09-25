@@ -43,11 +43,28 @@ class EditorSnappingTest {
     }
 
     @Test
-    fun isolatedCornerDoesNotSnapOrRoundToGrid() {
+    fun nearbyVerticesSnapWithoutRoundingToGrid() {
         val pose = Pose(Vec2(.778f, .515f))
-        assertEquals(pose, snapEditorPose(PieceKind.SQUARE, pose,
-            mapOf(PieceKind.LARGE_ONE to triangle), 1f, .03f))
+        val result = snapEditorPose(PieceKind.SQUARE, pose,
+            mapOf(PieceKind.LARGE_ONE to triangle), 1f, .03f)
+        assertEquals(.775f, result.center.x, .00001f)
+        assertEquals(.525f, result.center.y, .00001f)
         assertEquals(pose, snapEditorPose(PieceKind.SQUARE, pose, emptyMap(), 1f, .03f))
+    }
+
+    @Test
+    fun twoIndependentEdgesAreSnappedTogether() {
+        val horizontal = Pose(Vec2(.525f, .675f))
+        val vertical = Pose(Vec2(.475f, .475f), rotation = 90)
+        val result = snapEditorPose(
+            PieceKind.SQUARE,
+            Pose(Vec2(.63f, .49f)),
+            mapOf(PieceKind.LARGE_ONE to horizontal, PieceKind.LARGE_TWO to vertical),
+            1f,
+            .03f
+        )
+        assertEquals(.65f, result.center.x, .00001f)
+        assertEquals(.5f, result.center.y, .00001f)
     }
 
     @Test

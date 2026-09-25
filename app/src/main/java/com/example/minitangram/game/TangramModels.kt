@@ -16,6 +16,8 @@ data class PieceSpec(val kind: PieceKind, val vertices: List<Vec2>, val color: L
 data class Pose(val center: Vec2, val rotation: Int = 0, val flipped: Boolean = false)
 data class Level(val id: Int, val name: String, val targets: Map<PieceKind, Pose>, val canvasYScale: Float? = null)
 
+const val TARGET_AREA_BOTTOM = .68f
+
 fun Level.forCanvas(yScale: Float): Level {
     val source = canvasYScale ?: return this
     return copy(targets = targets.mapValues { (_, pose) ->
@@ -23,7 +25,7 @@ fun Level.forCanvas(yScale: Float): Level {
     }, canvasYScale = yScale)
 }
 enum class Difficulty { BEGINNER, ADVANCED }
-enum class PieceColorTheme { CLASSIC, BRIGHT, PASTEL, MONOCHROME }
+enum class PieceColorTheme { CLASSIC, BRIGHT, PASTEL, OCEAN, SUNSET, MONOCHROME }
 data class PlayingPiece(
     val spec: PieceSpec,
     val pose: Pose,
@@ -88,6 +90,24 @@ fun PieceKind.colorFor(theme: PieceColorTheme): Long = when (theme) {
         PieceKind.SMALL_TWO -> 0xFFC1ADD6
         PieceKind.SQUARE -> 0xFFF1D98A
         PieceKind.PARALLELOGRAM -> 0xFFB89D8F
+    }
+    PieceColorTheme.OCEAN -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFF006D77
+        PieceKind.LARGE_TWO -> 0xFF028090
+        PieceKind.MEDIUM -> 0xFF00A896
+        PieceKind.SMALL_ONE -> 0xFF2A9D8F
+        PieceKind.SMALL_TWO -> 0xFF56CFE1
+        PieceKind.SQUARE -> 0xFF83C5BE
+        PieceKind.PARALLELOGRAM -> 0xFF264653
+    }
+    PieceColorTheme.SUNSET -> when (this) {
+        PieceKind.LARGE_ONE -> 0xFFE76F51
+        PieceKind.LARGE_TWO -> 0xFFF4A261
+        PieceKind.MEDIUM -> 0xFFE9C46A
+        PieceKind.SMALL_ONE -> 0xFFF28482
+        PieceKind.SMALL_TWO -> 0xFFB56576
+        PieceKind.SQUARE -> 0xFFFFC857
+        PieceKind.PARALLELOGRAM -> 0xFF6D597A
     }
     PieceColorTheme.MONOCHROME -> when (this) {
         PieceKind.LARGE_ONE -> 0xFF263238

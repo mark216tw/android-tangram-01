@@ -88,6 +88,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
@@ -123,6 +124,7 @@ import com.example.minitangram.game.pieceSpecs
 import com.example.minitangram.game.containsPoint
 import com.example.minitangram.game.colorFor
 import com.example.minitangram.game.transformedVertices
+import com.example.minitangram.game.TARGET_AREA_BOTTOM
 import com.example.minitangram.ui.theme.DisplayMode
 import com.example.minitangram.ui.theme.MiniTangramTheme
 import kotlinx.coroutines.launch
@@ -169,6 +171,8 @@ fun MiniTangramApp(onExit: () -> Unit) {
                     soundEnabled = progress.soundEnabled,
                     onModeChange = { mode -> scope.launch { repository.setDisplayMode(mode) } },
                     onSoundEnabledChange = { enabled -> scope.launch { repository.setSoundEnabled(enabled) } },
+                    hideBuiltInLevels = progress.hideBuiltInLevels,
+                    onHideBuiltInLevelsChange = { hidden -> scope.launch { repository.setHideBuiltInLevels(hidden) } },
                     difficulty = progress.difficulty,
                     onDifficultyChange = { difficulty -> scope.launch { repository.setDifficulty(difficulty) } },
                     colorTheme = progress.pieceColorTheme,
@@ -338,7 +342,7 @@ private fun LevelSelectScreen(
         }
     }
     PageScaffold("遊戲關卡", navController, if (progress.difficulty == Difficulty.BEGINNER) "初級" else "高級") { padding ->
-        val allLevels = levels + progress.customLevels
+        val allLevels = if (progress.hideBuiltInLevels) progress.customLevels else levels + progress.customLevels
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
@@ -404,9 +408,10 @@ private fun InstructionsScreen(navController: NavController) {
             Instruction("壹 · 移動", "按住彩色拼片拖曳到想要的位置。被選取的拼片會浮到最上層。")
             Instruction("貳 · 旋轉", "選取拼片後，使用底部左右旋轉按鈕，每次轉動 45 度。")
             Instruction("參 · 翻面", "棕色平行四邊形可使用翻面按鈕切換方向。")
-            Instruction("肆 · 吸附", "位置、角度及方向接近正確時，拼片會自動吸附並鎖定。")
-            Instruction("伍 · 提示", "提示會短暫標示一塊尚未完成的拼片與它的目標位置。")
-            HorizontalDivider(Modifier.padding(vertical = 20.dp))
+             Instruction("肆 · 吸附", "位置、角度及方向接近正確時，拼片會自動吸附並鎖定。")
+             Instruction("伍 · 提示", "提示會短暫標示一塊尚未完成的拼片與它的目標位置。")
+             Instruction("陸 · 自訂關卡", "在關卡頁可建立、編輯及刪除自訂關卡，也能匯入或匯出關卡檔案。建立時可拖曳拼片、旋轉、翻面，或用兩指移動整個圖案；排列完成後輸入名稱儲存即可遊玩。")
+             HorizontalDivider(Modifier.padding(vertical = 20.dp))
             Text("完成關卡會記錄最佳時間並解鎖下一幅圖案。遊戲不需要網路連線。", color = MaterialTheme.colorScheme.outline, lineHeight = 23.sp)
         }
     }
@@ -425,6 +430,8 @@ private fun SettingsScreen(
     soundEnabled: Boolean,
     onModeChange: (DisplayMode) -> Unit,
     onSoundEnabledChange: (Boolean) -> Unit,
+    hideBuiltInLevels: Boolean,
+    onHideBuiltInLevelsChange: (Boolean) -> Unit,
     difficulty: Difficulty,
     onDifficultyChange: (Difficulty) -> Unit,
     colorTheme: PieceColorTheme,
@@ -457,6 +464,8 @@ private fun SettingsScreen(
                     PieceColorTheme.CLASSIC -> "經典"
                     PieceColorTheme.BRIGHT -> "高彩"
                     PieceColorTheme.PASTEL -> "柔和"
+                    PieceColorTheme.OCEAN -> "海洋"
+                    PieceColorTheme.SUNSET -> "夕照"
                     PieceColorTheme.MONOCHROME -> "單色"
                 }
                 SettingChoice(label, colorTheme == theme, { onColorThemeChange(theme) }, Modifier.weight(1f)) {
@@ -477,6 +486,15 @@ private fun SettingsScreen(
             ) {
                 Text("音效", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 Switch(checked = soundEnabled, onCheckedChange = onSoundEnabledChange)
+            }
+            HorizontalDivider(Modifier.padding(vertical = 10.dp))
+            Row(
+                Modifier.fillMaxWidth().clickable { onHideBuiltInLevelsChange(!hideBuiltInLevels) }.padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("隱藏內建拼圖", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Switch(checked = hideBuiltInLevels, onCheckedChange = onHideBuiltInLevelsChange)
             }
         }
     }
@@ -531,20 +549,18 @@ private fun GameScreen(
         },
         bottomBar = { GameControls(state.selected, game) }
     ) { padding ->
-        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)) {
-            Text("依照淡墨剪影拼合七片", color = MaterialTheme.colorScheme.outline, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp))
-            TangramBoard(
-                displayLevel,
-                state.pieces,
-                state.selected,
-                state.hint,
-                state.hintTarget,
-                game,
-                difficulty,
-                colorTheme,
-                Modifier.fillMaxWidth().weight(1f).padding(12.dp).onSizeChanged { boardSize = it }
-            )
-        }
+        TangramBoard(
+            displayLevel,
+            state.pieces,
+            state.selected,
+            state.hint,
+            state.hintTarget,
+            game,
+            difficulty,
+            colorTheme,
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding).padding(12.dp)
+                .onSizeChanged { boardSize = it }
+        )
     }
 
     if (state.completed) {
@@ -624,8 +640,8 @@ private fun TangramBoard(
     ) {
         drawLine(
             onSurface.copy(alpha = if (dark) .34f else .18f),
-            Offset(0f, size.height * .68f),
-            Offset(size.width, size.height * .68f),
+            Offset(0f, size.height * TARGET_AREA_BOTTOM),
+            Offset(size.width, size.height * TARGET_AREA_BOTTOM),
             1.dp.toPx()
         )
         val targetPieces = level.targets.map { (kind, pose) ->
@@ -646,6 +662,9 @@ private fun TangramBoard(
             val targetPath = targetUnionPath(targetPieces, size.width / size.height, size.width, size.height)
             drawPath(targetPath, onSurface.copy(alpha = if (dark) .14f else .07f))
             drawPath(targetPath, onSurface.copy(alpha = if (dark) .78f else .48f), style = Stroke(2.dp.toPx()))
+            targetPieces.firstOrNull { it.spec.kind == hintTarget }?.let { targetPiece ->
+                drawPiece(targetPiece, accent.copy(alpha = .25f), accent, 2.dp.toPx())
+            }
         }
         pieces.forEach { piece ->
             val isSelected = selected == piece.spec.kind
@@ -714,6 +733,7 @@ private fun LevelEditorScreen(
     colorTheme: PieceColorTheme
 ) {
     val editorDark = MaterialTheme.colorScheme.surface.luminance() < .5f
+    val guide = MaterialTheme.colorScheme.primary.copy(alpha = if (editorDark) .42f else .28f)
     val initial = existing?.targets ?: PieceKind.entries.mapIndexed { index, kind ->
         kind to Pose(Vec2(.16f + index * .11f, if (index < 3) .72f else .88f))
     }.toMap()
@@ -804,6 +824,30 @@ private fun LevelEditorScreen(
                     }
                 }
         ) {
+            val guideStroke = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(8.dp.toPx(), 6.dp.toPx())))
+            drawRect(
+                color = guide.copy(alpha = if (editorDark) .08f else .05f),
+                size = androidx.compose.ui.geometry.Size(size.width, size.height * TARGET_AREA_BOTTOM)
+            )
+            drawRect(
+                color = guide,
+                size = androidx.compose.ui.geometry.Size(size.width, size.height * TARGET_AREA_BOTTOM),
+                style = guideStroke
+            )
+            drawLine(
+                color = guide,
+                start = Offset(size.width / 2f, 0f),
+                end = Offset(size.width / 2f, size.height * TARGET_AREA_BOTTOM),
+                strokeWidth = 1.dp.toPx(),
+                pathEffect = guideStroke.pathEffect
+            )
+            drawLine(
+                color = guide,
+                start = Offset(0f, size.height / 2f),
+                end = Offset(size.width, size.height / 2f),
+                strokeWidth = 1.dp.toPx(),
+                pathEffect = guideStroke.pathEffect
+            )
             poses.forEach { (kind, pose) ->
                 drawPiece(PlayingPiece(pieceSpecs.first { it.kind == kind }, pose), Color(kind.colorFor(colorTheme)), if (selected == kind) { if (editorDark) Color.White else Color(0xFF3F342C) } else Color.Black.copy(alpha = .35f), if (selected == kind) 3.dp.toPx() else 1.dp.toPx())
             }

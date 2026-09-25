@@ -15,6 +15,11 @@ class TangramModelsTest {
     }
 
     @Test
+    fun builtInLevelsAreVisibleByDefault() {
+        assertFalse(UserProgress().hideBuiltInLevels)
+    }
+
+    @Test
     fun beginnerDifficultyIsEnabledByDefault() {
         assertEquals(Difficulty.BEGINNER, UserProgress().difficulty)
     }

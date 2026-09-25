@@ -25,6 +25,7 @@ private val Context.dataStore by preferencesDataStore("mini_tangram_preferences_
 data class UserProgress(
     val displayMode: DisplayMode = DisplayMode.SYSTEM,
     val soundEnabled: Boolean = true,
+    val hideBuiltInLevels: Boolean = false,
     val unlockedLevel: Int = 1,
     val bestTimes: Map<Int, Long> = emptyMap(),
     val difficulty: Difficulty = Difficulty.BEGINNER,
@@ -35,6 +36,7 @@ data class UserProgress(
 class PreferencesRepository(private val context: Context) {
     private val modeKey = stringPreferencesKey("display_mode")
     private val soundEnabledKey = booleanPreferencesKey("sound_enabled")
+    private val hideBuiltInLevelsKey = booleanPreferencesKey("hide_built_in_levels")
     private val unlockedKey = intPreferencesKey("unlocked_level")
     private val difficultyKey = stringPreferencesKey("difficulty")
     private val customLevelsKey = stringPreferencesKey("custom_levels")
@@ -47,6 +49,7 @@ class PreferencesRepository(private val context: Context) {
                 runCatching { DisplayMode.valueOf(it) }.getOrDefault(DisplayMode.SYSTEM)
             } ?: DisplayMode.SYSTEM,
             soundEnabled = preferences[soundEnabledKey] ?: true,
+            hideBuiltInLevels = preferences[hideBuiltInLevelsKey] ?: false,
             unlockedLevel = preferences[unlockedKey] ?: 1,
             difficulty = preferences[difficultyKey]?.let { runCatching { Difficulty.valueOf(it) }.getOrDefault(Difficulty.BEGINNER) } ?: Difficulty.BEGINNER,
             customLevels = customLevels,
@@ -63,6 +66,10 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun setSoundEnabled(enabled: Boolean) {
         context.dataStore.edit { it[soundEnabledKey] = enabled }
+    }
+
+    suspend fun setHideBuiltInLevels(hidden: Boolean) {
+        context.dataStore.edit { it[hideBuiltInLevelsKey] = hidden }
     }
 
     suspend fun setDifficulty(difficulty: Difficulty) {
