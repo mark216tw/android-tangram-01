@@ -537,6 +537,7 @@ private fun GameScreen(
     var boardSize by remember { mutableStateOf(IntSize.Zero) }
     var coloring by remember { mutableStateOf(false) }
     var selectedColoringPiece by remember { mutableStateOf<PieceKind?>(null) }
+    var attemptBestTime by remember(level.id) { mutableStateOf(bestTime) }
     var artworkColors by remember(colorTheme) {
         mutableStateOf(PieceKind.entries.associateWith { it.colorFor(colorTheme) })
     }
@@ -563,6 +564,9 @@ private fun GameScreen(
     LaunchedEffect(state.completed) {
         if (state.completed) onComplete(state.elapsedSeconds)
     }
+    LaunchedEffect(bestTime, state.completed) {
+        if (!state.completed) attemptBestTime = bestTime
+    }
 
     Scaffold(
         topBar = {
@@ -582,6 +586,11 @@ private fun GameScreen(
                         IconButton(onClick = game::hint) { Icon(Icons.Rounded.Lightbulb, "提示") }
                     }
                     IconButton(onClick = {
+                        attemptBestTime = if (state.completed) {
+                            bestTimeAfterAttempt(attemptBestTime, state.elapsedSeconds)
+                        } else {
+                            bestTime
+                        }
                         game.reset()
                         coloring = false
                         selectedColoringPiece = null
@@ -626,10 +635,11 @@ private fun GameScreen(
                     CompletionPanel(
                         level = level,
                         elapsedSeconds = state.elapsedSeconds,
-                        bestTime = bestTime,
+                        bestTime = attemptBestTime,
                         hintsUsed = state.hintsUsed,
                         isCustom = isCustom,
                         onRetry = {
+                            attemptBestTime = bestTimeAfterAttempt(attemptBestTime, state.elapsedSeconds)
                             game.reset()
                             coloring = false
                             selectedColoringPiece = null
@@ -685,12 +695,7 @@ private fun CompletionPanel(
         Text(level.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         Text("完成時間 ${formatTime(elapsedSeconds)}", modifier = Modifier.padding(top = 2.dp))
         Text(
-            when {
-                bestTime == null -> "新的最佳紀錄"
-                elapsedSeconds < bestTime -> "比前次紀錄快了 ${bestTime - elapsedSeconds} 秒"
-                elapsedSeconds > bestTime -> "比最佳紀錄慢了 ${elapsedSeconds - bestTime} 秒"
-                else -> "與最佳紀錄相同"
-            },
+            completionRecordMessage(elapsedSeconds, bestTime),
             color = MaterialTheme.colorScheme.primary,
             fontSize = 13.sp
         )
@@ -708,6 +713,16 @@ private fun CompletionPanel(
         }
     }
 }
+
+internal fun completionRecordMessage(elapsedSeconds: Long, previousBestTime: Long?): String = when {
+    previousBestTime == null -> "新的最佳紀錄"
+    elapsedSeconds < previousBestTime -> "比最佳紀錄快了 ${previousBestTime - elapsedSeconds} 秒"
+    elapsedSeconds > previousBestTime -> "比最佳紀錄慢了 ${elapsedSeconds - previousBestTime} 秒"
+    else -> "與最佳紀錄相同"
+}
+
+private fun bestTimeAfterAttempt(previousBestTime: Long?, elapsedSeconds: Long): Long =
+    previousBestTime?.coerceAtMost(elapsedSeconds) ?: elapsedSeconds
 
 @Composable
 private fun ColoringPanel(
